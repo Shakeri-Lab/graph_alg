@@ -426,6 +426,22 @@ The unique MWC in this graph is formed by the edge $e_{NT}$ plus the unique path
 
 
 \section{Application: Accelerating Loop Modulus Computation}
+
+\subsection*{From Online to Offline – shifting the bottleneck}
+The dominant cost in existing implementations of Loop Modulus (and other cycle–richness metrics) is the *online* search for the most violated cycles at every iteration.  A standard implementation using *baseline Dijkstra* must perform a fresh single–source shortest–path (SSSP) expansion *inside* every optimisation iteration, tying the overall runtime directly to the number of iterations.
+
+Our \emph{Weighted Minimum‐Cycle} (\textbf{WMC}) algorithm changes this picture fundamentally.  Because WMC minimises \emph{composite distance} rather than plain SSSP trees, all information required to answer subsequent cycle queries can be collected in a single, graph–wide preprocessing pass.  In other words, the expensive part is pushed to a \emph{pre-processing stage} that can be run once, cached, and even distributed across multiple workers or machines.  Once the WMC structure is built, each iteration of the Loop Modulus algorithm merely consults the pre-computed data to retrieve violating cycles – typically \(100\!\times\) faster than re-running Dijkstra.
+
+Engineering accelerations such as BMSSP recursion, the Cython relaxation kernel, or the compiled block-priority queue further reduce preprocessing time, yet \emph{they are not necessary for correctness}.  They only shrink the wall-clock time of building the WMC structure.  The conceptual contribution – the ability to decouple preprocessing from iterative optimisation – is already present in the basic WMC algorithm.
+
+\paragraph{Comparison hierarchy.}  We therefore separate our experimental results into three tiers:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Baseline Dijkstra} – conventional approach with a fresh SSSP per iteration.
+  \item \textbf{Proposed WMC (our Dijkstra-replacement)} – composite-distance algorithm with no BMSSP or Cython; preprocessing executed once.
+  \item \textbf{WMC + Engineering accelerations} – optional BMSSP, Cython heap, $\rho$-pruning, etc., which only affect preprocessing speed.
+\end{enumerate}
+This hierarchy clarifies that BMSSP should be viewed as an implementation detail that optimises an already superior computational layout rather than as the core methodological advance.
+
 \label{sec:loop_modulus_app}
 A fundamental problem in network analysis is quantifying the ``richness'' of cyclic structures within a graph. The $p$-Modulus of a family of loops $L$ provides such a measure, analogous to concepts in complex analysis \cite{albin2016minimal}. For $p=2$, which offers computational advantages and a useful probabilistic interpretation, the modulus is defined via the quadratic programming problem (QP) \cite{shakeri2017network}:
 
