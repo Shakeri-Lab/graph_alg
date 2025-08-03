@@ -54,3 +54,19 @@ This document tracks the ongoing work to speed-up **girth** and then integrate t
 - [~] In progress
 
 Maintain this file after each significant change so everyone stays in sync.
+
+---
+## Phase-3 Optimisation Tasks (2024-08-03)
+
+| ID | Task | Status | Notes |
+|----|------|--------|-------|
+| 1 | Adaptive Seed Count | ☐ Pending | Dynamic seeds = max(1, ⌊k·γ⌋); stop when BMSSP finds no new shorter cycle. |
+| 2 | ρ-Weighted Graph Pruning | ☐ Pending | Build subgraph with ρ > ε (ε ≈ 1e-6) before each BMSSP call to shrink search space. |
+| 3 | Active-Set QP / Constraint Dropping | ✅ Completed | Implemented: constraints with dual ≤ τ are removed after each OSQP solve; warm-starts adjusted. |
+
+### Verification & Benchmark Protocol
+1. Large-graph benchmark: run `girth/benchmark.py --run benchmarks` (Agg backend) and log times in `docs/benchmark_large_graphs.md`.
+2. Correctness check: compute loop modulus on the Cholera graph; expected value 98–101.  Assert within this range in CI.
+
+Update status and notes for each task as soon as code is merged or results measured.
+
