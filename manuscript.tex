@@ -1,0 +1,612 @@
+\documentclass{article}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts, mathtools}
+\usepackage{amssymb}
+\usepackage{enumitem}
+\usepackage[left=1.5cm, right=2cm, top = 2cm, bottom=2cm]{geometry}
+\usepackage[numbers]{natbib}
+\usepackage{lineno,hyperref}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathrsfs} %calligraphy fonts
+\usepackage{graphicx, tikz}
+\usepackage[caption=false]{subfig}
+\usepackage{wrapfig}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usetikzlibrary{arrows.meta}
+\pgfplotsset{compat=1.16}
+%
+\newtheorem{theorem}{Theorem}
+\newtheorem{example}[theorem]{Example}
+\newtheorem{corollary}{Corollary}
+\newtheorem{lemma}{Lemma}
+\newtheorem{definition}{Definition}
+\DeclareMathOperator{\Tr}{Tr}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathAlphabet{\mathpzc}{OT1}{pzc}{m}{it}%Styled letters for sockets
+\newcommand{\soc}{\mathpzc{S}}
+\newcommand{\toc}{\mathpzc{T}}
+\newcommand{\roc}{\mathpzc{R}}
+\DeclareMathOperator{\lca}{lca}
+\newcommand{\nodes}{\operatorname{nodes}}
+\newcommand{\pred}{\operatorname{pred}}
+\newcommand{\concats}[2]{{#1}\!+\!\!\!+\,{#2}}
+
+\newcommand{\cT}{\mathcal{T}}
+\newcommand{\defeq}{\mathrel{\mathop:}=}
+%\renewcommand{\thesubfigure}{\Alph{subfigure}}
+\renewcommand{\L}{\mathcal{L}}
+\newcommand{\ones}{\mathbf{1}}
+\modulolinenumbers[5]
+
+\newcommand{\ta}[1]{\textcolor{blue}{\textit{(TA: {#1})}}}
+\newcommand{\hs}[1]{\textcolor{olive}{\textit{(HS: {#1})}}}
+
+\title{A Fast Algorithm for Finding Minimum Weight Cycles in Mining Cyclic Graph Topologies}
+
+
+% Add authors here
+\author{Heman Shakeri\textsuperscript{1,*} \and Behnaz Moradi-Jamei\textsuperscript{2} \and Torben Amtoft\textsuperscript{3} \and Pietro Poggi-Corradini\textsuperscript{4}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Cyclic structures are fundamental topological features in graphs, playing critical roles in network robustness, information flow, community structure, and various dynamic processes. Algorithmic tools that can efficiently probe and analyze these cyclic topologies are increasingly vital for tasks in graph mining, network optimization, bioinformatics, and social network analysis. A core primitive for quantitative analysis of cycles is finding the Minimum Weight Cycle (MWC), representing the shortest cyclic path in a weighted graph. However, computing the MWC efficiently remains a challenge, particularly compared to shortest path computations.
+This paper introduces a novel deterministic algorithm for finding the MWC in general weighted graphs (\href{https://github.com/Shakeri-Lab/girth}{github.com/Shakeri-Lab/girth}). Our approach adapts the structure of Dijkstra's algorithm by introducing and minimizing a \textit{composite distance} metric, effectively translating the global cycle search into an iterative node-centric optimization. We provide a rigorous proof of correctness based on loop invariants.
+We detail two mechanisms for accelerating the search: a provable node discarding technique based on intermediate results, and a highly effective graph pruning heuristic. This heuristic dynamically restricts the search to relevant subgraphs, leveraging the principle of locality often present in complex networks to achieve significant empirical speedups, while periodic resets ensure global optimality is maintained.
+The efficiency of the proposed MWC algorithm enables its use as a core component in more complex analyses focused on cyclic properties. We illustrate this through a detailed application case study: accelerating the computation of the Loop Modulus, a measure of cycle richness used in advanced network characterization (\href{https://github.com/Shakeri-Lab/loop\_modulus}{github.com/Shakeri-Lab/loop\_modulus}). Our algorithm dramatically reduces the runtime of the iterative constraint-finding bottleneck in this computation.
+
+\end{abstract}
+
+
+\noindent\textsuperscript{1}School of Data Science, University of Virginia\\
+\textsuperscript{2}Department of Mathematics and Statistics, University of Kansas\\
+\textsuperscript{3}Department of Computer Science, Kansas State University\\
+\textsuperscript{4}Department of Mathematics, Kansas State University\\
+\textsuperscript{*}Corresponding author: \href{mailto:hs9hd@virginia.edu}{hs9hd@virginia.edu}
+
+\section{Problem Statement and Framework}
+\label{sec:intro_framework}
+
+Cyclic structures permeate real-world networks and abstract graph representations, influencing phenomena ranging from network resilience and transport efficiency to the formation of communities and the behavior of dynamic systems \cite{diestel2000graph}. Effectively analyzing these cyclic topologies requires robust algorithmic primitives. A cornerstone primitive is the computation of the Minimum Weight Cycle (MWC), often referred to as the (weighted) girth of the graph \cite{harary1969graph}. Finding the MWC is fundamental not only in graph theory itself but also serves as a building block for applications such as computing minimal cycle bases \cite{gleiss2001circuit, kavitha2004faster, kavitha2007new}, analyzing cycle packing problems \cite{caprara2003packing, krivelevich2005approximation, salavatipour2005disjoint}, understanding graph connectivity and chromatic properties \cite{diestel2000graph, djidjev2000computing}, and even solving related problems like min-cut in planar graph duals \cite{sankowski2011min}. Furthermore, efficient MWC computation is crucial for network analysis techniques like Loop Modulus, which quantifies the richness of cycle families \cite{shakeri2016modulus}.
+
+Despite its importance, finding the MWC in general weighted undirected graphs algorithmically is considerably more challenging than finding shortest paths between vertex pairs. Let $G=(V, E, w)$ be an undirected graph with vertex set $V$, edge set $E$, and a non-negative edge weight function $w: E \to \mathbb{R}_{> 0}$. A \textit{path} $\pi$ is a sequence of distinct vertices $v_0, v_1, \dots, v_r$ such that $(v_{i-1}, v_i) \in E$ for all $i=1, \dots, r$. A \textit{simple cycle} $c$ is a sequence of vertices $v_0, v_1, \dots, v_r$ where $v_0 = v_r$, $r \ge 3$, and $v_1, \dots, v_r$ are distinct. We denote the set of vertices in a path or cycle $\pi$ as $\text{vertices}(\pi)$. The \textit{length} of a path $\pi = (v_0, \dots, v_r)$ or cycle $c = (v_0, \dots, v_r)$ is the sum of its edge weights:
+\begin{equation}
+\label{eq:length_def}
+\ell(\pi) := \sum_{i=1}^r w(v_{i-1}, v_i).
+\end{equation}
+The \textit{shortest path distance} $d(x, y)$ between vertices $x, y \in V$ is the minimum length $\ell(\pi)$ over all paths $\pi$ from $x$ to $y$. If no path exists, $d(x, y) = \infty$. The Minimum Weight Cycle (MWC) problem seeks to find a simple cycle $c^*$ in $G$ such that $\ell(c^*) = \min_{c \in \mathscr{C}} \ell(c)$, where $\mathscr{C}$ is the set of all simple cycles in $G$. We assume $G$ is not a tree, so $\mathscr{C}$ is non-empty.
+
+\paragraph{Existing Approaches and Challenges}
+Significant effort has been invested in developing algorithms for the MWC problem. For unweighted graphs, Itai and Rodeh \cite{itai1978finding} presented algorithms with subcubic time complexity related to matrix multiplication, though the weighted case was left open. Subsequent work extended these ideas to integer weights \cite{roditty2011minimum} and established connections between MWC and other challenging graph problems \cite{williams2010subcubic}. Approximation algorithms \cite{itai1978finding, Roditty20111446, lingas2009efficient, yuster2011shortest, peleg2012distributed}, randomized algorithms \cite{yuster2011shortest}, and specialized algorithms for finding even-length cycles \cite{yuster1997finding} have also been developed.
+A common strategy employed by many deterministic MWC algorithms for weighted graphs involves searching for the shortest cycle passing through a specific vertex or edge. For example, one can adapt all-pairs shortest path algorithms or run multiple shortest path searches (like Dijkstra's) from each vertex $v$, looking for the shortest path between neighbors $u, z$ of $v$ in the graph $G \setminus \{v\}$, leading to overall complexities like $O(|V||E| + |V|^2 \log |V|)$ or related bounds \cite{itai1978finding, yuster2011shortest, orlin2016nm}. 
+\ta{This apparently assumes an implementation using fibonacci heaps (cf.~Section~\ref{subsec:worst_case}; are they efficient in practice?}\hs{They are not efficcient in my experience. My best implementation is not using fibonacci.}
+While effective, these approaches repeatedly explore large portions of the graph.
+
+% \begin{figure}[htbp]
+%     \centering
+%     \resizebox{0.8\textwidth}{!}{\input{Figures/composite_distance.tex}}
+%     \caption{Visualization of the composite distance concept. For a vertex $x$, the composite distance $d^+(x,c)$ to a cycle $c$ is the sum of the shortest path distance from $x$ to any vertex in $c$ and the length of cycle $c$.}
+%     \label{fig:composite_distance}
+% \end{figure}
+
+
+\begin{wrapfigure}[21]{r}{0.4\textwidth}
+\vspace{-14pt}
+	\centering
+    \resizebox{0.4\textwidth}{!}{\input{Figures/composite_distance.tex}}
+    \vspace{-13pt}
+	\caption{Composite distance  $d^+(x,c)$ is the shortest path distance from vertex $x$ to cycle $c$ plus $c$'s length $\ell(c)$. The plot shows cycles $c_1$ and $c_2$ with edge weights. The Minimum Weight Cycle (MWC) length is $\ell(c^*) = \min_{x \in V} \min_{c \in \mathscr{C}} d^+(x,c)$.}
+    \label{fig:composite_distance}
+\end{wrapfigure}
+
+
+\subsection{An Alternative View: Composite Distance Minimization}
+\label{subsec:composite_distance} % Renamed subsection
+
+In contrast to vertex- or edge-rooted searches, this paper introduces a different perspective based on minimizing a metric that couples shortest path distances with cycle lengths. This allows for a vertex-centric iterative approach inspired by Dijkstra's algorithm.
+
+\begin{definition}[Composite Distance]\label{def:composite_distance}
+For a vertex $x \in V$ and a cycle $c \in \mathscr{C}$, the distance from $x$ to $c$ is $d(x,c) = \min_{y \in \text{vertices}(c)} d(x,y)$. The \textit{composite distance} from vertex $x$ to cycle $c$ is defined as:
+\begin{equation}\label{eq:composite}
+d^+(x,c) = d(x,c) + \ell(c).
+\end{equation}
+The composite distance from vertex $x$ to the family of all cycles $\mathscr{C}$ is:
+\begin{equation}\label{eq:closestC}
+d^+(x) = \min_{c\in \mathscr{C}} d^+(x,c).
+\end{equation}
+\end{definition}
+
+This definition shifts the focus from finding a cycle directly to finding a vertex $x$ that minimizes this composite distance $d^+(x)$. The following theorem establishes the equivalence between minimizing $d^+(x)$ and finding the MWC.
+
+\begin{theorem}[Equivalence to MWC]\label{thm:minmin_equiv} % Renamed theorem label
+	Minimizing $d^+(x)$ over $x\in V$ is equivalent to finding the length of the minimum weight cycle in $G$. Moreover, the minimum value $\min_{x \in V} d^+(x)$ equals $\ell(c^*)$ for any MWC $c^*$, and this minimum is attained for any vertex $x \in \text{vertices}(c^*)$.
+\end{theorem}
+\begin{proof}
+	For any $x\in V$ and $c\in \mathscr{C}$, $d^+(x,c) = d(x,c) + \ell(c) \ge \ell(c)$ since $d(x,c) \ge 0$. Equality $d^+(x,c) = \ell(c)$ holds if and only if $d(x,c) = 0$, i.e. $x \in \text{vertices}(c)$.\ta{not if an edge can have weight zero}\hs{right, I removed weight zero in the weight definition} 
+    % Thus, $\min_{c \in \mathscr{C}} d^+(x,c)$ for a fixed $x$ occurs when $c$ is a cycle containing $x$ with minimum length among those passing through $x$ 
+    \ta{What if no cycle passes through $x$?}\hs{rewritten:} Let $c^*$ be a Minimum Weight Cycle. For any vertex $x^* \in \text{vertices}(c^*)$, the distance to the cycle is zero, so its composite distance is $d^+(x^*, c^*) = \ell(c^*)$. For any arbitrary vertex $y \in V$ and any cycle $c \in \mathscr{C}$, the composite distance $d^+(y,c) = d(y,c) + \ell(c) \ge \ell(c) \ge \ell(c^*)$.
+\end{proof}
+
+
+This shows that the global minimum value of the composite distance is precisely $\ell(c^*)$. Therefore, the overall minimum $\min_{x\in V} d^+(x)$ is equal to $\ell(c^*)$, and this minimum is achieved for any vertex on a Minimum Weight Cycle.
+In other words, the MWC length (girth) of the graph is found by solving the following nested minimization problem (depicted in \ref{fig:composite_distance}):
+\begin{equation}\label{eq_girth_thm}
+\ell(c^*) = \min_{x\in V} d^+(x) = \min_{x\in V}\left( \min_{c\in \mathscr{C}} d^+(x,c)\right).
+\end{equation}
+Therefore, the proposed algorithm enumerates the vertices $V=\{1, 2, \dots, N\}$ and iteratively minimizes $d^+(x)$ for each vertex $x$. Information gathered during the search for $d^+(j)$ can be used to accelerate the subsequent search for $d^+(j+1)$. Specifically, the current best MWC length estimate can serve as a cut-off. 
+This acceleration can be taken a step further. The following theorem provides a criterion for discarding certain vertices from future consideration entirely.
+
+\begin{theorem}[Vertex Discarding Criterion]\label{thm:exclude_vertices} % Renamed theorem label and added ``Vertex"
+\ta{Could this theorem be illustrated by an example, perhaps a modification of Figure~\ref{fig:composite_distance}? }\hs{we can use the same figure and explain why a search from x discards y1, and y2 from the subsequent searches.}
+Suppose for some vertex $j \in V$, the minimum composite distance is $d^+(j) = d(j,c) + \ell(c)$ for some cycle $c \in \mathscr{C}$. If $c$ is not a shortest cycle (i.e., a $c^*$ exists with $\ell(c^*) < \ell(c)$), then any vertex $z$ processed after $j$ satisfying $d(j,z) \le d(j,c)$ cannot belong to any $c^*$. Such vertices $z$ can thus be safely discarded from subsequent searches for the global MWC.
+\end{theorem}
+\begin{proof}
+	Let $c^*$ be any MWC, then for a non MWC $c$, we have $\ell(c^*) < \ell(c)$. By the definition of $d^+(j)$ (Equation \ref{eq:closestC}), we also know $d^+(j) \le d^+(j,c^*)$. The premise assumes $d^+(j,c)$ is the minimum found associated with $j$, so $d^+(j) = d^+(j,c)$. Combining these gives:
+	\begin{align*}
+	d(j,c) + \ell(c) = d^+(j,c) = d^+(j) &\le d^+(j,c^*) \\
+	&= d(j,c^*) + \ell(c^*) \\
+	&< d(j,c^*) + \ell(c) \quad (\text{since } \ell(c^*) < \ell(c)).
+	\end{align*}
+	Comparing the start and end of this inequality chain and cancelling $\ell(c)$ yields:
+	$$
+	d(j,c) < d(j,c^*).
+	$$
+	Now consider any vertex $z$ such that $d(j,z) \le d(j,c)$. If $z$ were part of the MWC $c^*$, then by the definition of $d(j,c^*)$ (as the minimum distance from $j$ to any vertex in $c^*$), we would have $d(j,c^*) \le d(j,z)$. Combining these inequalities gives $d(j,c^*) \le d(j,z) \le d(j,c)$. However, this contradicts the established result $d(j,c) < d(j,c^*)$. Therefore, the initial assumption must be false: $z$ cannot belong to $c^*$.
+\end{proof}
+This composite distance framework, incorporating Theorem \ref{thm:minmin_equiv} and Theorem \ref{thm:exclude_vertices}, forms the basis of the Dijkstra-like algorithm detailed in Section \ref{sec_alg}.
+The remainder of this paper is organized as follows. Section \ref{sec:complexity} discusses the algorithm's complexity, introduces the graph pruning heuristic for practical performance enhancement, and provides illustrative examples. Section \ref{sec:loop_modulus_app} demonstrates the application of the algorithm to accelerate Loop Modulus computations. Finally, Section \ref{sec:conclusion} offers concluding remarks.
+%==========%==========%==========%==========
+
+\section{An Iterative Algorithm based on Composite Distance}
+\label{sec_alg} % Changed label to match text
+
+Building upon the composite distance framework, we now present a deterministic algorithm designed to find MWC by iteratively minimizing $d^+(x)$ for each vertex $x \in V$. The algorithm adapts the core mechanics of Dijkstra's shortest path algorithm. For each starting vertex $x$, it grows a shortest path tree, but incorporates specific checks to identify cycles and update the global minimum cycle length found so far. Crucially, it includes an optimization based on the current shortest cycle estimate to potentially terminate the inner search early, aiming to improve performance over exhaustive searches.
+
+\subsection{Algorithm Description}
+\label{subsec:algo_desc}
+The algorithm proceeds with an outer loop iterating through all potential starting vertices $x \in V$. The globally shortest cycle length found across all iterations is stored. Inside this loop, a modified Dijkstra-like search is performed starting from $x$.
+
+\paragraph{Data Structures} The primary data structure maintained across the outer loop iterations is:
+\begin{itemize}
+    \item $\gamma$: Records the length of the shortest simple cycle found globally so far. Initially $\gamma = \infty$. It is updated whenever a shorter cycle is discovered. (The algorithm can be easily modified to store the cycle itself, not just its length).
+\end{itemize}
+The inner loop (the modified Dijkstra search starting from $x$) utilizes the following:
+\begin{itemize}
+    \item $Q$: The set of vertices for which the shortest path distance from $x$ has been finalized in the current inner iteration. Initially $Q = \emptyset$.
+    \item $\delta$: A function mapping $V \to \mathbb{R}_{\ge 0} \cup \{\infty\}$. $\delta(y)$ stores the current upper bound on the shortest path distance $d(x,y)$. If $y \in Q$, then $\delta(y) = d(x,y)$. Initially, $\delta(x) = 0$ and $\delta(y) = \infty$ for $y \neq x$.
+    \item $\texttt{pred}$: A partial function mapping vertices $v \in Q \setminus \{x\}$ to their predecessor $u = \texttt{pred}(v)$ on the shortest path from $x$ found so far. $u$ must be in $Q$. We use $\texttt{pred}^k$ for $k$ applications, $\texttt{pred}^+(v)$ for the set of all predecessors (excluding $v$), and $\texttt{pred}^*(v)$ for $\texttt{pred}^+(v) \cup \{v\}$.
+\end{itemize}
+
+The detailed procedure is presented in Algorithm \ref{alg:MWC_Dijkstra}. This algorithm augments the standard Dijkstra approach in two key ways:
+\begin{enumerate}
+    \item \textbf{Cycle Detection and Update:} When considering an edge $(y, z)$ where $y$ is newly added to $Q$ and $z$ is already in $Q$, a potential cycle is formed if $z$ is not the direct predecessor of $y$. The algorithm calculates the length of this cycle using the current shortest path distances ($\delta$ values) and the edge weight $w(y,z)$, leveraging the Lowest Common Ancestor (LCA)\footnote{The efficient computation of the LCA is a standard problem in algorithmic graph theory \cite{OnlineLCA} and can be handled using various techniques, often with logarithmic or near-constant time complexity per query after some preprocessing.} $p$ of $y$ and $z$ in the current shortest path tree rooted at $x$. The global minimum $\gamma$ is updated if this cycle is shorter (Lines 17-21 in Algorithm \ref{alg:MWC_Dijkstra}).
+    \item \textbf{Optimized Termination Condition:} The standard Dijkstra continues until all reachable vertices are in $Q$. This algorithm incorporates a check (Line 6): the inner `while' loop only continues exploring vertices $v \notin Q$ if their current distance estimate $\delta(v)$ is less than $\gamma/2$. This condition is crucial for efficiency and its validity is proven in the correctness analysis (Lemma \ref{lem:outer}). It stems from the observation that any potential shorter cycle involving an unexplored vertex $v$ must necessarily consist of two paths from $x$ to $v$ (one potentially being just the edge closing the cycle), and if $v$ is too far from $x$, it cannot contribute to a cycle shorter than $\gamma$.
+\end{enumerate}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{minipage}{0.9\linewidth}
+        \begin{algorithm}[H]
+            \caption{MWC Algorithm based on Composite Distance Minimization}
+            \label{alg:MWC_Dijkstra}
+            \begin{algorithmic}[1]
+            \algnotext{EndFor}
+            \algnotext{EndIf}
+            \algnotext{EndWhile}
+                \State $\gamma \gets \infty$ \Comment{Shortest cycle length found so far}
+                \ForAll{vertex $x \in V$}
+                    \State Initialize $\delta(v) \gets \infty$ for all $v \in V$; $\texttt{pred}(v)$ undefined for all $v \in V$
+                    \State $Q \leftarrow \emptyset$ \Comment{Set of finalized vertices for this iteration}
+                    \State $\delta(x) \leftarrow 0$
+                    \While{there exists $v \notin Q$ such that $\delta(v) < \gamma/2$} \label{line:while_condition} \Comment{Optimized termination}
+                        \State $y \leftarrow \arg\min_{v \notin Q} \{\delta(v)\}$ \Comment{Select closest vertex not in Q}
+                        % \If{$\delta(y) = \infty$} \ta{How can that happen given that the 'while' guard is true?}\textbf{break} \EndIf \Comment{No more reachable vertices satisfying condition}
+                        \State $Q \leftarrow Q \cup \{y\}$
+                        \ForAll{vertex $z$ adjacent to $y$ (i.e., $(y,z) \in E$)}
+                            \If{$z \notin Q$} \Comment{Standard Dijkstra edge relaxation}
+                                \If{$\delta(y) + w(y,z) < \delta(z)$}
+                                    \State $\delta(z) \leftarrow \delta(y) + w(y,z)$
+                                    \State $\texttt{pred}(z) \leftarrow y$
+                                \EndIf
+                            \ElsIf{$z \in Q$ and $z \neq \texttt{pred}(y)$} \Comment{Potential cycle detected} \label{line:cycle_check}
+                                \State $p \leftarrow \text{LCA}_{\texttt{pred}^*}(y, z)$ \Comment{Find Lowest Common Ancestor} %The implementation  \ta{Why not also the algorithm?} should correctly identify the cycle path and sum its edge weights.} in SP tree from $x$} \label{line:lca}
+                                % \If{$p$ exists} \ta{Why would  $p$ not exist?}\Comment{Ensure $y, z$ share an ancestor path from $x$}
+                                    \State $\text{cycle\_length} \leftarrow \delta(y) + \delta(z) + w(y,z)-2\delta(p)$ \Comment{$\delta(p)$ is the distance from $x$ to the LCA.}\label{line:cycle_length_calc}
+                                    \State $\gamma \leftarrow \min(\gamma, \text{cycle\_length})$ \label{line:gamma_update}
+                                \EndIf
+                            % \EndIf
+                        \EndFor
+                    \EndWhile
+                \EndFor
+                \State \Return $\gamma$
+            \end{algorithmic}
+        \end{algorithm}
+    \end{minipage}
+\end{figure}
+
+\subsection{Correctness Proof}
+\label{subsec:correctness}
+
+To establish that Algorithm \ref{alg:MWC_Dijkstra} correctly computes the length of the MWC, we rely on proving loop invariants for both the inner `while' loop (Lemma \ref{lem:inner}) and the outer `for' loop (Lemma \ref{lem:outer}). A key concept used in these proofs is the $Q$-path.
+
+\begin{definition}[$Q$-path]
+Given a vertex set $Q \subseteq V$, a $Q$-path is a simple path $v_0, v_1, \dots, v_n$ such that $v_i \in Q$ for all $i \in \{0, \dots, n-1\}$. The endpoint $v_n$ may or may not belong to $Q$.
+\end{definition}
+
+The invariants essentially state that during the inner loop initiated from vertex $x$:
+\begin{itemize}
+    \item For vertices $u$ already finalized ($u \in Q$), $\delta(u)$ correctly stores the shortest path distance $d(x,u)$ (Invariant \eqref{eq:delta-eq}).
+    \item Vertices in $Q$ are always closer to $x$ (in terms of current $\delta$ values) than vertices not yet in $Q$ (Invariant \eqref{eq:delta-less}).
+    \item The $\delta$ value for any vertex $v$ with a finite estimate corresponds to the length of a specific path found so far involving its predecessor (Invariant \eqref{eq:delta-pred}).
+    \item $\delta(v)$ provides a lower bound for the length of any $Q$-path from $x$ to $v$ (Invariant \eqref{eq:deltaQpath1}).
+    \item If $\delta(v)$ is finite, there exists a $Q$-path from $x$ to $v$ realizing this length (Invariant \eqref{eq:deltaQpath2}).
+    \item The global variable $\gamma$ always remains a lower bound on the length of any cycle contained entirely within the currently explored region $Q$ and passing through $x$ (Invariant \eqref{eq:gammaC}).
+\end{itemize}
+
+\begin{lemma}[Inner Loop Invariants]
+\label{lem:inner}
+The {\bf while} loop in Algorithm~\ref{alg:MWC_Dijkstra}, for a fixed outer loop iteration $x$, maintains the following invariants:
+\begin{align}
+\label{eq:delta-eq}
+&\forall u \in Q: \delta(u) = d(x,u) \quad (\text{which is finite}) \\
+\label{eq:delta-less}
+&\forall u \in Q, \forall v \notin Q: \delta(u) \leq \delta(v) \\
+\label{eq:delta-pred}
+&\forall v \in V \setminus \{x\} \text{ with } \delta(v) < \infty: \exists u = \texttt{pred}(v) \in Q \text{ s.t. } \delta(v) = \delta(u) + w(u,v) = d(x,u) + w(u,v) \\
+\label{eq:deltaQpath1}
+&\forall v \in V, \forall Q\text{-paths } \pi \text{ from } x \text{ to } v: \delta(v) \leq \ell(\pi) \\
+\label{eq:deltaQpath2}
+&\forall v \in V \text{ with } \delta(v) < \infty: \exists \text{ a } Q\text{-path } \pi \text{ from } x \text{ to } v \text{ with } \delta(v) = \ell(\pi) \\
+\label{eq:gammaC}
+&\forall \text{ cycles } C \text{ with } x \in \text{vertices}(C) \subseteq Q: \gamma \leq \ell(C)
+\end{align}
+\end{lemma}
+\begin{proof} The proof proceeds by induction.
+\textit{Base Case:} Initially $Q = \emptyset$, $\delta(x)=0$, $\delta(v)=\infty$ for $v \neq x$, and $\gamma = \infty$. Invariants \eqref{eq:delta-eq}-\eqref{eq:delta-pred} and \eqref{eq:gammaC} hold vacuously or trivially. \eqref{eq:deltaQpath1} holds because the only $Q$-path is $x$ itself. Invariant \eqref{eq:deltaQpath2} holds since we need to consider only $v=x$.
+
+\textit{Inductive Step:} Assume the invariants hold before an iteration where vertex $y$ is selected and added to $Q$. We need to show they hold after the iteration (when $Q' = Q \cup \{y\}$ and $\delta, \gamma$ may be updated).
+\begin{itemize}
+    \item Invariant \eqref{eq:delta-eq}: We must show $\delta(y) = d(x,y)$, where ``$\ge$" follows from invariant (\ref{eq:deltaQpath2}); we shall use standard Dijkstra logic to show that it is impossible that $\delta(y) > d(x,y)$. For then there exists a path $\pi$ from $x$ to $y$ with $l(\pi) < \delta(y)$. Let $z$ be the first vertex on $\pi$ not in $Q$. Then $d(x,z) < \delta(y)$, but since $z \notin Q$, $\delta(z) \ge \delta(y)$ by invariant \eqref{eq:delta-less}, a contradiction since by invariant (\ref{eq:deltaQpath1}), $\delta(z) \le l(\pi) < \delta(y)$.
+    \item Invariant \eqref{eq:delta-less}: If $u \in Q'$ and $v \notin Q'$, we need $\delta'(u) \le \delta'(v)$. If $u \in Q$, $\delta'(u)=\delta(u) \le \delta(y)$. If $u=y$, $\delta'(u)=\delta(y)$. If $v$ was updated, $\delta'(v) = \delta(y) + w(y,v) \ge \delta(y)$. If $v$ was not updated, $\delta'(v)=\delta(v) \ge \delta(y)$. The inequality holds.
+    \item Invariant \eqref{eq:delta-pred}: Holds by construction for vertices $z$ whose $\delta$ value is updated in this iteration (Line 13). Uses the proven $\delta(y)=d(x,y)$.
+    \item Invariants \eqref{eq:deltaQpath1}, \eqref{eq:deltaQpath2}: These proofs follow the standard Dijkstra arguments, considering paths that either do or do not pass through the newly added vertex $y$.
+    \item Invariant \eqref{eq:gammaC}: If a cycle $C$ has $\text{vertices}(C) \subseteq Q'$, and it does not contain $y$, the invariant holds by induction. %If $y \in C$, let $z_1, z_2$ be its neighbors in $C$. At least one \ta{Why not both? we know $z_1,z_2$ are in $Q'$ and as neither is $y$ they must be in $Q$ } , say $z_1$, must be in $Q$ when $y$ is processed (otherwise $y$ could not be part of a cycle fully contained in $Q'$ unless $Q'=\{y\}$ which is impossible for a cycle). 
+    If $y$ is a vertex in cycle $C$, let $z_1$ and $z_2$ be its neighbors within that cycle. Since the entire cycle $C$ is contained within $Q' = Q \cup \{y\}$, and neither $z_1$ nor $z_2$ is the vertex $y$, it follows that both neighbors must have already been in the set $Q$ when $y$ was processed.
+    When the edge $(y, z_1)$ is considered in Line \ref{line:cycle_check}, the algorithm finds the LCA $p$ and calculates a cycle length. Let the cycle formed by the paths $x \leadsto p \leadsto y$ and $x \leadsto p \leadsto z_1$ plus edge $(y,z_1)$ be $C'$. Its length is $\delta(y) + \delta(z_1) + w(y, z_1) - 2\delta(p)$. The update rule $\gamma' \leftarrow \min(\gamma, \ell(C'))$ ensures $\gamma' \le \ell(C')$. While $C'$ might not be $C$, the argument extends to show that $\gamma$ eventually bounds the length of any cycle fully within $Q$. The explicit calculation using $\delta(y) + \delta(z) + w(y,z)$ in Line \ref{line:cycle_length_calc} of the pseudocode directly calculates the length of the cycle formed by the path $x \leadsto y$, edge $(y,z)$, and path $z \leadsto x$ found so far. The proof relates this calculation to $\ell(C)$ through the properties of shortest paths and LCAs. \ta{I didn't get the above argument}\hs{here is another attempt, but please feel free to rewrite}
+    \item Invariant \eqref{eq:gammaC}: If a cycle $C$ has $\text{vertices}(C) \subseteq Q'$, and it does not contain $y$, the invariant holds by induction. If $y \in C$, let $z_1, z_2$ be its neighbors in $C$. Since the entire cycle $C$ is contained within $Q' = Q \cup \{y\}$, and neither $z_1$ nor $z_2$ is the vertex $y$, it follows that both neighbors must have already been in the set $Q$ when $y$ was processed.
+    When the edge $(y, z_1)$ is considered, the algorithm detects a cycle $C'$ formed by the shortest paths (in the current tree) from the root $x$ to $y$ and to $z_1$, plus the edge $(y, z_1)$. By its construction, $C'$ is the shortest cycle that can be formed through the root $x$ and the edge $(y,z_1)$. Since our arbitrary cycle $C$ is also a cycle passing through $x$ and $(y, z_1)$, it must be that $\ell(C') \le \ell(C)$.
+    The algorithm's update rule, $\gamma' \leftarrow \min(\gamma, \ell(C'))$, ensures that $\gamma' \le \ell(C')$. Combining these inequalities gives $\gamma' \le \ell(C') \le \ell(C)$, which proves the invariant holds.
+
+\end{itemize}
+% (A full detailed proof requires careful handling of paths and predecessors, similar to standard Dijkstra correctness proofs, plus the cycle update logic.)
+\end{proof}
+
+The outer loop invariants ensure that the algorithm correctly maintains the global minimum cycle length estimate $\gamma$ and that the early termination condition of the inner loop is sound.
+
+\begin{lemma}[Outer Loop Invariants]
+\label{lem:outer}
+The {\bf for} loop (Lines 2-end) in Algorithm~\ref{alg:MWC_Dijkstra} maintains the following invariants, where $X$ is the set of vertices $x$ processed so far by the outer loop:
+\begin{align}
+\label{eq:gamma-leq}
+&\text{If } C \text{ is a cycle with } \text{vertices}(C) \cap X \neq \emptyset \text{ then } \gamma \leq \ell(C). \\
+\label{eq:gamma-eq}
+&\text{If } \gamma < \infty \text{ then there exists a cycle } C \text{ with } \ell(C) = \gamma.
+\end{align}
+\end{lemma}
+\begin{proof}
+(Sketch) Again, proved by induction on the iterations of the outer loop.
+\textit{Base Case:} Initially $X=\emptyset, \gamma=\infty$. Both invariants hold vacuously.
+
+\textit{Inductive Step:} Assume invariants hold before processing vertex $x$. Let $\gamma_{old}$ be the value before the inner loop, $\gamma_{new}$ the value after. We know $\gamma_{new} \le \gamma_{old}$.
+\begin{itemize}
+    \item Invariant \eqref{eq:gamma-leq}: Consider a cycle $C$ with $\text{vertices}(C) \cap (X \cup \{x\}) \neq \emptyset$. If $\text{vertices}(C) \cap X \neq \emptyset$, then $\gamma_{old} \le \ell(C)$ by induction. Since $\gamma_{new} \le \gamma_{old}$, we have $\gamma_{new} \le \ell(C)$. Now assume $\text{vertices}(C) \cap X = \emptyset$, which means $x \in \text{vertices}(C)$. We need to show $\gamma_{new} \le \ell(C)$.
+    Consider the state when the inner loop for $x$ terminates. Let $Q_{final}$ be the final set $Q$. The termination condition $\delta(v) < \gamma_{new}/2$ fails for all $v \notin Q_{final}$. This implies $\delta(v) \ge \gamma_{new}/2$ for all $v \notin Q_{final}$. 
+        % Since $\delta(v) = d(x,v)$ for $v \in Q_{final}$\ta{This does not appear relevant. Rather, we observe that if we had continued the iteration, we would arrive at a $\delta'$ with $d(x,v) = \delta'(v)$ and $\delta'(v) \ge \gamma_{new}/2$ for all $v \notin Q_{final}$}, we have $d(x,v) \ge \gamma_{new}/2$ for all $v \notin Q_{final}$.
+    \hs{here is the rewrite:}The true shortest path distance must also satisfy this bound, because if $d(x,v) < \gamma_{new}/2$ for some $v \notin Q_{final}$, a vertex on a shortest path to $v$ would have an estimate less than $\gamma_{new}/2$, contradicting the termination of the inner loop. Thus, we have $d(x,v) \ge \gamma_{new}/2$ for all $v \notin Q_{final}$.
+    If $\text{vertices}(C) \subseteq Q_{final}$, then invariant \eqref{eq:gammaC} from Lemma \ref{lem:inner} ensures $\gamma_{new} \le \ell(C)$.
+    If there exists $v \in \text{vertices}(C)$ such that $v \notin Q_{final}$, then we can write $C$ as two paths between $x$ and $v$, say $\pi_1$ and $\pi_2$. Then $\ell(C) = \ell(\pi_1) + \ell(\pi_2) \ge d(x,v) + d(x,v) = 2d(x,v)$. Since $v \notin Q_{final}$, $d(x,v) \ge \gamma_{new}/2$. Thus, $\ell(C) \ge 2(\gamma_{new}/2) = \gamma_{new}$. In all cases, $\gamma_{new} \le \ell(C)$. This shows the termination condition is sound.
+    \item Invariant \eqref{eq:gamma-eq}: If $\gamma$ is updated in the inner loop (Line \ref{line:gamma_update}) to $\gamma_{new} = \ell(C')$ for some cycle $C'$ formed by paths $x \leadsto y$, edge $(y,z)$, path $z \leadsto x$, then the invariant holds. If $\gamma$ is not updated, $\gamma_{new} = \gamma_{old}$, and the invariant holds by induction. The construction of the cycle $C'$ involves paths traced back via $\texttt{pred}$ to the LCA $p$ and ensures $C'$ is a simple cycle whose length matches the calculated value $\delta(y) + \delta(z) + w(y,z) - 2\delta(p)$.
+\end{itemize}
+\end{proof}
+
+Finally, the overall correctness follows directly from the outer loop invariants holding upon termination.
+
+\begin{theorem}[Overall Correctness]
+\label{thm:overall_correctness}
+Algorithm~\ref{alg:MWC_Dijkstra} terminates and returns $\gamma = \ell(c^*)$, where $c^*$ is a Minimum Weight Cycle in $G$.
+\end{theorem}
+\begin{proof}
+The algorithm terminates because the outer loop iterates $|V|$ times, and the inner `while' loop processes each vertex at most once per outer iteration (standard Dijkstra property). When the outer loop finishes, $X=V$. By invariant \eqref{eq:gamma-leq} of Lemma \ref{lem:outer}, $\gamma \leq \ell(C)$ for \textit{all} cycles $C$ (since any $C$ must contain some vertex, and all vertices are in $X$). Thus $\gamma \le \min_{C \in \mathscr{C}} \ell(C) = \ell(c^*)$. By invariant \eqref{eq:gamma-eq}, if $\gamma$ is finite (which it will be if $G$ has cycles), there exists a cycle $C'$ such that $\ell(C') = \gamma$. Combining these, we have $\ell(C') = \gamma \le \ell(c^*)$. Since $c^*$ is an MWC, we must have $\ell(C') \ge \ell(c^*)$. Therefore, $\gamma = \ell(C') = \ell(c^*)$.
+\end{proof}
+
+
+
+
+
+
+%==========%==========%==========%==========
+
+\section{Complexity Analysis and Performance Enhancement}
+\label{sec:complexity} % Changed label to reflect content better
+
+Having presented Algorithm \ref{alg:MWC_Dijkstra} and established its correctness, we now turn to its computational complexity and discuss strategies for practical performance enhancement, particularly the graph pruning heuristic.
+
+\subsection{Worst-Case Complexity Analysis}
+\label{subsec:worst_case}
+
+Algorithm \ref{alg:MWC_Dijkstra} consists of an outer loop iterating $|V|$ times, once for each potential starting vertex $x$. The inner `while' loop executes a modified Dijkstra search.
+\begin{itemize}
+    \item \textbf{Inner Loop (Modified Dijkstra):} In the worst case, without the $\gamma/2$ optimization significantly curtailing the search, the inner loop resembles a standard Dijkstra execution. Using a Fibonacci heap for the priority queue (to implement the $\arg\min$ in Line 7), selecting the minimum vertex takes amortized $O(\log |V|)$ time, and edge relaxations (Lines 10-14) take amortized $O(1)$ time per edge. Thus, one inner loop iteration runs in $O(|E| + |V|\log |V|)$ time.
+    \item \textbf{LCA Queries:} The cycle detection step (Line 16) requires computing the Lowest Common Ancestor (LCA) within the current shortest path tree. This check can happen up to $O(|E|)$ times per inner loop. Using efficient online LCA data structures \cite{OnlineLCA}, each query can often be answered in $O(\log |V|)$ or even faster time (approaching constant time in practice after initial setup per tree), contributing an additional $O(|E| \log |V|)$ factor per inner loop in a straightforward analysis, though this might be pessimistic as tree structures evolve.
+    \item \textbf{Overall Naive Bound:} Combining these, executing the inner loop for all $|V|$ starting vertices gives a naive worst-case complexity bound of approximately $O(|V|(|E| + |V|\log |V| + |E|\log |V|))$, which simplifies to $O(|V||E|\log|V| + |V|^2\log |V|)$ or often stated as $O(|V||E| + |V|^2\log |V|)$ if LCA costs are considered near-constant or absorbed.
+\end{itemize}
+
+
+However, this analysis ignores the crucial optimizations:
+\begin{itemize}
+    \item \textbf{Early Termination ($\gamma/2$):} The condition $\delta(v) < \gamma/2$ (Line 6) can significantly prune the search space, especially once a relatively short cycle $\gamma$ is found. In graphs with short girth, many inner loops might terminate very quickly. Quantifying this speedup analytically for the general case is difficult, as it depends heavily on the graph structure and weight distribution.
+    \item \textbf{Vertex Discarding (Theorem \ref{thm:exclude_vertices}):} Theorem \ref{thm:exclude_vertices} allows for the potential removal or ignoring of vertices $z > j$ if $d(j,z) \le d(j,c)$ where $c$ is the cycle associated with $d^+(j)$. This effectively reduces the size of the graph ($|V|$ and $|E|$) for subsequent outer loop iterations.
+\end{itemize}
+
+Let $V_i$ and $E_i$ denote the set of active vertices and edges at the start of the $i$-th outer loop iteration (after potential removals from previous iterations). The complexity is better represented as $\sum_{i=1}^{|V|} O(|E_i| + |V_i|\log |V_i|)$, incorporating LCA costs within this bound. The effectiveness of vertex discarding determines how quickly $|V_i|$ and $|E_i|$ decrease. 
+
+We can model the impact of vertex discarding by considering the total number of edge relaxations across all iterations. Let $F$ be the sum of degrees of all vertices over all iterations, accounting for removals:
+\begin{equation}\label{eq:F_term}
+F = \sum_{i=1}^{|V|} \sum_{j \in V_i} \text{deg}_{G_i}(j) \approx \sum_{i=1}^{|V|} 2|E_i|
+\end{equation}
+where $G_i=(V_i, E_i)$ is the graph at iteration $i$. The complexity related to edge processing then becomes roughly $O(F)$, and the part related to priority queue operations is $\sum_{i=1}^{|V|} O(|V_i|\log |V_i|)$. The overall complexity can be expressed as $O(F + |V|^2\log |V|)$ in the worst case for the priority queue over all iterations, though often $O(F + |V|\log|V| \cdot |V|)$ is used. The value of $F$ depends critically on the graph structure and the order of vertex processing (which affects discarding). As shown in Figure \ref{fig:F_factor}, $F$ can be significantly smaller than the naive bound $|V| \cdot 2|E|$ for many graph types, especially sparse ones or when high-degree vertices are processed early.
+While vertex discarding offers a theoretical improvement, its practical impact varies. For further, more consistent speedups, especially when vertex discarding is not highly effective, we introduce a heuristic pruning method.
+
+
+
+\begin{wrapfigure}[23]{r}{0.4\textwidth}
+\vspace{-14pt}
+	\centering
+	\includegraphics[clip,width=0.38\textwidth]{Figures/F_factor.pdf}% Change path if needed
+    \vspace{-18pt}
+	\caption{Fraction of the total possible edges examined ($|E_i|/|E|$) if vertices are removed one by one, sorted by degree (highest first), simulating an upper bound on the effect of vertex discarding on the worst case term $F$. Models shown: Erdős-Rényi (ER), Barabasi-Albert (BA), Watts-Strogatz (WS), Complete graph (K). The area under the curve relative to 1 indicates the potential reduction in edge processing compared to the naive $|V||E|$ term.}
+    \label{fig:F_factor}
+\end{wrapfigure}
+
+
+\subsection{Performance Enhancement: Graph Pruning Heuristic}
+\label{subsec:pruning_heuristic_complexity} % Added subsection for pruning
+
+Inspired by the locality principle and optimizations used in related iterative graph algorithms (like Loop Modulus computation in Section \ref{sec:loop_modulus_app}), we propose a heuristic graph pruning strategy to be used \textit{in conjunction} with Algorithm \ref{alg:MWC_Dijkstra}. This heuristic is distinct from the provable vertex discarding of Theorem \ref{thm:exclude_vertices}.
+
+\textbf{Motivation:} Often, the shortest cycle, or cycles that are candidates for improving the current best $\gamma$, may be located structurally ``near'' the cycle that last updated $\gamma$. Continuously searching the entire (remaining) graph in every inner loop might be inefficient.
+\textbf{Mechanism:} i) After the inner loop for vertex $x$ completes and potentially updates $\gamma$ based on a detected cycle $c'$, identify the vertices involved in $c'$. ii) For a limited number of subsequent outer loop iterations (controlled by a parameter $\texttt{pruning\_reset\_interval}$), restrict the \textit{next} inner loop's search (e.g., starting from $x+1$) to a subgraph $G_{\text{pruned}}$. iii) $G_{\text{pruned}}$ is constructed by taking vertices within a certain hop distance (parameter $\text{pruning\_distance\_threshold}$) from the vertices of $c'$ in the original graph structure. iv) The inner loop (Lines 6-20) then operates primarily within $G_{\text{pruned}}$: $\arg\min$ considers only vertices in $G_{\text{pruned}}$, and edge relaxation explores only edges induced by $G_{\text{pruned}}$. v) Crucially, after $\texttt{pruning\_reset\_interval}$ iterations, or if $\gamma$ fails to improve within the pruned view, the algorithm reverts to searching the full (remaining) graph $G_i$ to ensure global correctness.
+
+\textbf{Impact:} This heuristic does not improve the theoretical worst-case complexity (which is determined by the full graph searches during resets), but it aims to drastically reduce the \textit{empirical runtime}. By operating on a potentially much smaller $|V_{\text{pruned}}|$ and $|E_{\text{pruned}}|$ for many inner loop iterations, the cost $O(|E_{\text{pruned}}| + |V_{\text{pruned}}|\log |V_{\text{pruned}}|)$ per iteration can be significantly lower. The overhead involves the BFS to determine $G_{\text{pruned}}$, which is typically less costly than the potential savings in the Dijkstra search.
+The combination of the $\gamma/2$ termination, provable vertex discarding, and the optional graph pruning heuristic makes Algorithm \ref{alg:MWC_Dijkstra} significantly faster in practice than naive MWC algorithms, as illustrated by the following examples.
+
+
+\subsection{Comparison Point: The Rooted Girth Algorithm}
+\label{subsec:rooted_girth}
+
+To contextualize the performance of Algorithm \ref{alg:MWC_Dijkstra}, it is useful to compare it conceptually to another Dijkstra-based approach. The ``rooted girth algorithm'' finds the MWC by iterating through all edges $e = (u,v) \in E$. For each edge, it computes the shortest path distance $d_{G\setminus e}(u,v)$ between $u$ and $v$ in the graph \textit{without} edge $e$. The length of the shortest cycle containing $e$ is then $d_{G\setminus e}(u,v) + w(e)$. The minimum length found over all edges is the MWC. This requires $|E|$ shortest path computations (e.g., using Dijkstra). While conceptually simple, this can be less efficient than Algorithm \ref{alg:MWC_Dijkstra}, particularly on graphs where the MWC is long or involves vertices far from each other, or when Algorithm \ref{alg:MWC_Dijkstra}'s optimizations are effective.
+
+
+\begin{wrapfigure}[35]{r}{0.35\textwidth}
+\vspace{-15pt}
+	\centering
+	\includegraphics[width=0.35\textwidth, trim={0 3cm .57cm 3.5cm},clip]{Figures/Pietro_grid.pdf} \\
+    % \vspace{-25pt}
+	\includegraphics[width=0.35\textwidth, trim={0 .5cm .8cm .85cm},clip]{Figures/Findmin_Counts.pdf}\\
+    \includegraphics[width=0.2\textwidth, trim={25cm 10cm 10cm 30cm},clip]{Figures/Dijkstra_random_geometric_graph.png}
+    % \vspace{-14pt}
+	\caption{(top) A $5\times 5$ weighted grid such that the MWC is localized near the highest labeled vertex. (middle) Comparison of the number of $\arg\min$ operations performed by the proposed Algorithm \ref{alg:MWC_Dijkstra} (dashed line) versus the rooted girth algorithm (solid line) to find the MWC on $d \times d$ grids. (bottom) A shortest cycle (thick blue/cyan edges) formed by adding one light non-tree edge (cyan) to a light spanning tree (red edges) within a larger spatial graph.}
+    \label{fig:grid}
+\end{wrapfigure}
+
+\subsection{Example 1: Grid Graph with a Localized Short Cycle}
+\label{subsec:example_grid}
+
+Consider a $d \times d$ grid graph, where vertices are labeled starting from $0$ at $[0,0]$ via BFS. We assign edge weights exponentially decreasing with distance from the highest-labeled vertex $v_{last}$ (at $[d-1, d-1]$): edges incident to $v_{last}$ have weight $2^0=1$, edges incident to vertices at hop distance $h$ from $v_{last}$ have weight $2^h$. An example $5 \times 5$ grid is shown in Figure \ref{fig:grid} (top).
+
+The unique MWC in this construction is the square of weight $1+1+2+2 = 6$ incident to $v_{last}$. For the rooted girth algorithm starting searches from low-labeled vertices, reaching this cycle requires exploring a large portion of the graph. Algorithm \ref{alg:MWC_Dijkstra}, however, benefits from its structure. While starting from $x=0$ might be slow, once an outer loop starts from a vertex $x$ closer to the MWC, the $\gamma/2$ condition and potential vertex discarding can accelerate finding and verifying the MWC. Figure \ref{fig:grid} (middle) empirically compares the number of $\arg\min$ operations (a proxy for Dijkstra cost) required by both approaches, showing Algorithm \ref{alg:MWC_Dijkstra} (dashed line) requires significantly fewer operations, especially for larger grids, finding the MWC much faster (often within processing just a few high-labeled vertices).
+
+
+
+
+\subsection{Example 2: Light Cycle on a Spanning Tree}
+\label{subsec:example_spanning_tree}
+
+Consider a base graph (e.g., a random geometric graph) where edge weights are initially large. We find an arbitrary spanning tree $T$ and re-weight all edges $e \in E(T)$ to $w(e)=1$. Then, we select one non-tree edge $e_{NT} = (u,v) \notin E(T)$ and set its weight $w(e_{NT})=1$. All other non-tree edges retain their large weights.
+
+The unique MWC in this graph is formed by the edge $e_{NT}$ plus the unique path between $u$ and $v$ within the spanning tree $T$. Finding this cycle using the rooted girth algorithm can be inefficient, as it must test $|E|$ edges, many of which belong only to very long cycles. Algorithm \ref{alg:MWC_Dijkstra}, when run starting from any vertex $x$, will explore the low-weight spanning tree edges efficiently. When the Dijkstra search expands across the edge $e_{NT}$, it will likely quickly detect the short cycle involving the tree path (Figure \ref{fig:grid}(bottom)). The $\gamma/2$ condition will then likely terminate subsequent searches rapidly. This structure highlights cases where Algorithm \ref{alg:MWC_Dijkstra} can significantly outperform edge-rooted approaches.
+
+
+
+\section{Application: Accelerating Loop Modulus Computation}
+\label{sec:loop_modulus_app}
+A fundamental problem in network analysis is quantifying the ``richness'' of cyclic structures within a graph. The $p$-Modulus of a family of loops $L$ provides such a measure, analogous to concepts in complex analysis \cite{albin2016minimal}. For $p=2$, which offers computational advantages and a useful probabilistic interpretation, the modulus is defined via the quadratic programming problem (QP) \cite{shakeri2017network}:
+
+\begin{equation}
+\label{eq:modulus_primal}
+\text{Mod}_2(L) = \min_{\rho \ge 0} \sum_{e \in E} \rho(e)^2 \quad \text{subject to} \quad \sum_{e \in \gamma} \rho(e) \ge 1 \quad \forall \gamma \in L
+\end{equation}
+Here, $\rho: E \to \mathbb{R}_{\ge 0}$ is a density function on the edges. The optimal density $\rho^*$ minimizing this quadratic energy function subject to the constraints (where each simple loop $\gamma$ must have a total $\rho$-length of at least 1) provides valuable information. Specifically, $\rho^*(e)$ can be interpreted as proportional to the expected usage of edge $e$ by ``important'' loops within the family $L$. The final $\text{Mod}_2(L)$ value quantifies the overall cycle richness, balancing the number and length of loops against their overlap. This measure and the resulting $\rho^*$ densities have applications in network clustering, community detection, and understanding network robustness \cite{shakeri2017network}.
+
+\subsection{The Iterative Modulus Algorithm and its Bottleneck}
+\label{subsec:modulus_algo_bottleneck}
+
+Directly solving the primal problem \eqref{eq:modulus_primal} is intractable due to the potentially enormous number of simple loops $L$. Practical algorithms, summarized in Algorithm \ref{alg:loop_mod}, employ an iterative approach based on constraint generation \cite{shakeri2017network}:
+\begin{enumerate}
+    \item \textbf{Initialization (Preprocessing):} Start with an empty or small initial set of loop constraints $L'$ (e.g., triangles found via heuristics or a shortest hop cycle, Lines 1-9).
+    \item \textbf{Initial QP Solve:} Solve the modulus QP problem restricted to $L'$ to obtain an initial density $\rho^{(0)}$ and warm-start variables (Lines 10-14).
+    \item \textbf{Constraint Finding (Bottleneck):} In iteration $k \ge 0$, find one or more simple cycles $\gamma$ \textit{not} currently in $L'$ that violate the constraints for the \textit{current} density $\rho^{(k)}$. That is, find $\gamma$ such that its $\rho$-length satisfies:
+    \begin{equation}
+    \label{eq:rho_length_violation}
+    l_\rho(\gamma) = \sum_{e \in \gamma} \rho^{(k)}(e) < 1.0 - \epsilon_{\text{tol}}
+    \end{equation}
+    where $\epsilon_{\text{tol}}$ is a small positive tolerance. The cycle(s) with the \textit{minimum} $l_\rho$ are the ``most violated'' (Line 28, implemented by `FindTopKViolatedCycles`).
+    \item \textbf{Add Constraint(s):} Add the found new unique violating cycle(s) to the set $L'$. If no new violating cycles are found, convergence is reached.
+    \item \textbf{Re-solve QP:} Solve the QP with the updated constraint set $L'$, using warm-starting from the previous solution to accelerate the solver (Lines 41-44). Update $\rho^{(k+1)}$.
+    \item \textbf{Iteration:} Repeat steps 3-5 until convergence or a maximum iteration limit is reached (Outer `while' loop, Line 16).
+\end{enumerate}
+The critical bottleneck in this process is Step 3, the \textbf{Constraint Finding}. This step requires searching the graph $G$ with edge weights defined by the \textit{current} density $\rho^{(k)}$ (which changes every iteration) to find the simple cycle(s) with the smallest $\rho$-length. Standard approaches often involve variants of repeated Dijkstra searches or related techniques, which can be computationally prohibitive \cite{shakeri2017network}.
+
+\subsection{Using Algorithm \ref{alg:MWC_Dijkstra} for Efficient Constraint Finding}
+\label{subsec:algo1_for_constraints} % Re-labeled from previous draft for clarity
+
+The constraint-finding step (Step 3 above) is fundamentally a search for a minimum weight simple cycle (or top-k shortest cycles), where the edge weights are given by the dynamic density $\rho^{(k)}$. Algorithms specifically designed for finding the MWC, such as Algorithm \ref{alg:MWC_Dijkstra} presented in Section \ref{sec_alg} or others employing efficient techniques \cite{itai1978finding, orlin2016nm}, are prime candidates to implement the \texttt{FindTopKViolatedCycles} function.
+
+In iteration $k$ of the modulus algorithm, the chosen MWC algorithm is executed using the current density $\rho^{(k)}$ as the edge weights $w(e) = \rho^{(k)}(e)$. Its goal is to efficiently identify at least one, and preferably up to $k_{\text{add}}$, simple cycles $\gamma$ satisfying Equation \eqref{eq:rho_length_violation}. The efficiency stems from exploiting the structure of the MWC problem itself, potentially avoiding the exhaustive nature of simpler APSP-based methods. For instance, Algorithm \ref{alg:MWC_Dijkstra}'s $\gamma/2$ pruning condition (adapted to use $1.0 - \epsilon_{\text{tol}}$ perhaps, or simply running until the first few cycles shorter than the threshold are found) can significantly limit the search effort required within the \texttt{FindTopKViolatedCycles} call.
+
+\subsection{Performance Enhancement: The Graph Pruning Heuristic}
+\label{subsec:pruning_heuristic} % Re-labeled from previous draft for clarity
+
+Even with an optimized MWC algorithm, searching the entire graph in every iteration can be redundant. Algorithm \ref{alg:loop_mod} incorporates an optional graph pruning heuristic (controlled by $P_{\text{use}}$) to focus the search:
+
+\begin{itemize}
+    \item \textbf{Motivation:} The most violated cycle(s) in iteration $k+1$ might often be structurally ``close" to the violating cycle(s) added in iteration $k$, as the $\rho$ adjustments primarily occur along those paths.
+    \item \textbf{Mechanism (Lines 45-52):}
+        \begin{enumerate}
+            \item \textit{Trigger:} After solving the QP and identifying the nodes $V_{\text{last\_added}}$ involved in the newly added cycles $L'_{\text{new}}$ (Line 40), and if pruning is enabled ($P_{\text{use}}$) and the algorithm is not currently in a reset phase ($k_{\text{prune\_steps}} == 0$).
+            \item \textit{Expand Region:} Perform a BFS starting from $V_{\text{last\_added}}$ on the original graph $G$ to find all nodes $V_{\text{keep}}$ within $P_{\text{dist}}$ hops (Line 46).
+            \item \textit{Create/Check View:} Attempt to create a subgraph $G_{\text{view}} = G[V_{\text{keep}}]$ (Line 50). Check if the pruning is too aggressive (e.g., $|V_{\text{keep}}| < 0.3 |V|$). If yes, force a reset by setting $G_{\text{view}} \gets G$ and ensuring the next iteration searches the full graph (Line 48). Otherwise, set $G_{\text{view}}$ to the pruned subgraph and start the prune counter $k_{\text{prune\_steps}} \gets 1$ (Line 51).
+            \item \textit{Localized Search (Lines 19-26):} In subsequent iterations, if pruning is active ($k_{\text{prune\_steps}} < P_{\text{interval}}$), the `FindTopKViolatedCycles' function (Line 28) is called with $G_{\text{search}} = G_{\text{view}}$. The MWC algorithm operates within this view, using global $\rho^{(k)}$ weights and validating found cycles against the full graph $G$.
+            \item \textit{Reset:} The search automatically reverts to the full graph $G_{\text{search}} = G$ when $k_{\text{prune\_steps}}$ reaches $P_{\text{interval}}$ (Line 24), or if the pruning was deemed too aggressive (Line 48).
+        \end{enumerate}
+\end{itemize}
+
+
+\begin{figure*}[htbp!] % Use figure* for full page width, adjust placement [htbp!]
+    \centering
+    % \begin{minipage}{\textwidth} % Use textwidth for full width
+        \begin{algorithm}[H] % H tries to place it here
+            \caption{Compact Iterative Loop Modulus Calculation (p=2)}
+            \label{alg:loop_mod}
+            \begin{algorithmic}[1]
+            \algnotext{EndFor}
+            \algnotext{EndIf}
+            \algnotext{EndWhile}
+                \Require Graph $G=(V, E)$, tol $\epsilon$, max iter $K$, init target $N_{\text{tgt}}$, cycles/iter $k_{\text{add}}$, prune params $P_{\text{use}}, P_{\text{int}}, P_{\text{dist}}$
+                \Ensure Optimal density $\rho^*$, Modulus $M$
+
+                \Statex \textit{// Phase 1: Preprocessing}
+                \State $L_{\text{cand}} \gets \Call{FindTriangles}{G}$ \textbf{or} $\{\Call{FindShortestHopCycle}{G}\}$ \textbf{if} none
+                \If{$L_{\text{cand}}$ is empty} \Return $\rho \gets \mathbf{0}$, $M \gets 0$ \EndIf
+                \State Score $L_{\text{cand}}$ (e.g., edge centrality)
+                \State $L' \gets \Call{GreedySelect}{L_{\text{cand}}, N_{\text{tgt}}}$
+                \State $\rho \gets \mathbf{0}$; $k \gets 0$; $M \gets 0$; $k_{\text{QP}} \gets 0$
+                \State $G_{\text{view}} \gets G$; $k_{\text{prune}} \gets 0$; $V_{\text{last}} \gets \emptyset$
+
+                \Statex \textit{// Phase 2: Initial QP Solve}
+                \State $N \gets \Call{BuildConstraintMatrix}{L'}$
+                \State $\rho, \text{w\_x}, \text{w\_y} \gets \Call{SolveQP}{N, \text{None}}$ ; $M \gets \sum \rho^2$ ; $k_{\text{QP}} \gets 1$
+
+                \Statex \textit{// Phase 3: Iterative Constraint Addition}
+                \While{$k < K$}
+                    \State $k \gets k + 1$
+                    \If{$P_{\text{use}}$ \textbf{and} $k_{\text{prune}} < P_{\text{int}}$ \textbf{and} $G_{\text{view}} \neq G$} \label{line:prune_check_compact} \Comment{Use pruned view?}
+                         \State $G_{\text{search}} \gets G_{\text{view}}$ ; $k_{\text{prune}} \gets k_{\text{prune}} + 1$
+                    \Else \Comment{Use full graph / Reset}
+                        \State $G_{\text{search}} \gets G$ ; $k_{\text{prune}} \gets 0$ ; $G_{\text{view}} \gets G$ \label{line:prune_logic_compact}
+                    \EndIf
+
+                    \State $\rho_{\text{map}} \gets \text{dict}(E \to \rho(e))$ \Comment{Find violating cycles}
+                    \State $L_{\text{viol}} \gets \Call{FindTopKViolatedCycles}{G_{\text{search}}, G, \rho_{\text{map}}, k_{\text{add}}, 1 - \epsilon}$ \label{line:find_cycles_compact}
+                    \If{$L_{\text{viol}}$ is empty} \textbf{break} \EndIf \Comment{Converged}
+
+                    \State $L'_{\text{new}} \gets \{\gamma \mid (\gamma, l_\rho) \in L_{\text{viol}} \text{ and } \gamma \notin L'\}$ \Comment{Collect new unique constraints}
+                    \If{$L'_{\text{new}}$ is empty} \textbf{break} \EndIf \Comment{No new violations found}
+                    \State $L' \gets L' \cup L'_{\text{new}}$ ; $V_{\text{last}} \gets \text{nodes in } L'_{\text{new}}$
+
+                    \State $N \gets \Call{BuildConstraintMatrix}{L'}$ \Comment{Re-solve QP}
+                    \State $\rho, \text{w\_x}, \text{w\_y} \gets \Call{SolveQP}{N, (\text{w\_x}, \text{w\_y})}$
+                    \State $M \gets \sum \rho^2$ ; $k_{\text{QP}} \gets k_{\text{QP}} + 1$
+
+                    \If{$P_{\text{use}}$ \textbf{and} $k_{\text{prune}} == 0$ \textbf{and} $L'_{\text{new}}$ is not empty} \label{line:prune_update_compact} \Comment{Update pruning state}
+                         \State $V_{\text{keep}} \gets \Call{BFSFromNodes}{G, V_{\text{last}}, P_{\text{dist}}}$
+                         \If{$|V_{\text{keep}}| < 0.3 |V|$} $G_{\text{view}} \gets G$ ; $k_{\text{prune}} \gets P_{\text{int}}$ \Comment{Check if prune too aggressive}
+                         \Else $G_{\text{view}} \gets G[V_{\text{keep}}]$ ; $k_{\text{prune}} \gets 1$
+                         \EndIf
+                    \EndIf
+                \EndWhile
+                \State $\rho^* \gets \rho$
+                \State \Return $\rho^*$, $M$, $k_{\text{QP}}$
+            \end{algorithmic}
+        \end{algorithm}
+    % \end{minipage}
+\end{figure*}
+
+\subsection{Correctness and Performance Impact}
+\label{subsec:correctness_performance}
+
+\begin{itemize}
+    \item \textbf{Correctness:} The pruning heuristic does not compromise the theoretical correctness of the overall loop modulus algorithm (Algorithm \ref{alg:loop_mod}). The key is the \textit{periodic reset mechanism}. Even if the globally most violating cycle lies outside the pruned view $G_{\text{view}}$, the algorithm will eventually revert to searching the full graph $G$, guaranteeing that any violations necessary for convergence will be found.
+    \item \textbf{Performance:} The primary benefit is empirical speedup. By restricting the MWC search (the implementation of `FindTopKViolatedCycles`) to the potentially much smaller $G_{\text{view}}$ for multiple iterations, the computational cost of the bottleneck step is significantly reduced. While the BFS for pruning (Line 46) adds overhead, it is often negligible compared to the savings achieved by running the MWC search on a smaller graph, especially when the MWC algorithm's complexity scales super-linearly with graph size.
+\end{itemize}
+
+% --- Include Figures and Table for Cholera Example here if desired ---
+% \subsection{Example Performance: Cholera Dataset}
+% ... (Text describing results, referencing figures/tables) ...
+% \begin{figure}[htbp] ... \caption{...} \label{fig:cholera_graph} \end{figure}
+% \begin{figure}[htbp] ... \caption{...} \label{tab:cholera_results} \end{figure} % Table in figure env
+% \begin{figure}[htbp] ... \caption{...} \label{fig:cholera_results_viz} \end{figure}
+
+
+\subsection{Example Performance: Cholera Dataset}
+\label{subsec:cholera_example}
+
+To illustrate the potential benefit, consider the application of an optimized iterative modulus algorithm to a real-world network dataset derived from the 1854 Broad Street cholera outbreak in London \cite{snow1856mode}. The graph (Figure \ref{fig:cholera_results_viz}(left)) can be constructed, for instance, using Delaunay triangulation based on the locations of cholera cases, representing geographic proximity relevant to potential water source usage \cite{networkx_delaunay}.
+Applying an optimized algorithm (using OSQP, warm-starting, batch constraint addition, and efficient constraint finding incorporating principles similar to Algorithm 1 with pruning) yields significant performance improvements compared to less optimized approaches, as shown in Table \ref{tab:cholera_results}. The $\rho^*$ values obtained highlight edges connecting areas that frequently participate in loops, potentially indicating regions strongly associated with shared water sources (Figure \ref{fig:cholera_results_viz}).
+
+\begin{figure}[ht]
+ \centering
+ \begin{tabular}{|l | r | c | r | l |}
+ \hline
+ \textbf{Method} & \textbf{QP Solves} & \textbf{Total Time (s)} & \textbf{Final Modulus} & \textbf{Total Constraints}  \\ \hline 
+ QP with Pruning-inspired & \textbf{67} & \textbf{$\sim$12.1} & \textbf{$\sim$100.7} & \textbf{556} \\ \hline
+ QP with Dijkstra & 475 & $\sim$700 & $\sim$99.1 & 475 \\ \hline
+ \end{tabular}
+ \caption{Illustrative performance comparison for Loop Modulus calculation on the Cholera dataset graph ($\sim$324 nodes, $\sim$941 edges).}
+ \label{tab:cholera_results}
+ \vspace{1em} % Add some space before the next figure, if needed
+ \centering
+    \begin{minipage}[c]{0.25\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{Figures/cholera_delaunay_graph.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.75\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, trim={0 0 .57cm 2cm},clip]{Figures/cholera_loop_modulus_results.png}
+    \end{minipage}
+ \caption{(left) Graph structure derived from the 1854 Cholera outbreak data using Delaunay triangulation of case locations \cite{networkx_delaunay}. (middle) Visualization of Loop Modulus results ($\rho^*$ edge densities) on the Cholera graph. (right) Edge thickness/color intensity corresponds to higher $\rho^*$ values, highlighting edges frequently part of important loops.}
+ \label{fig:cholera_results_viz}
+\end{figure}
+
+The results demonstrate a dramatic reduction in both the number of QP solves and the total runtime. This highlights the significant practical advantage gained by optimizing the constraint-finding bottleneck, where techniques derived from efficient MWC algorithms like Algorithm 1, coupled with heuristics like graph pruning, play a crucial role.
+
+\section{Conclusions}
+\label{sec:conclusion}
+
+In this paper, we introduced a novel algorithm for identifying the Minimum Weight Cycle (MWC) in weighted graphs, a fundamental problem in graph theory with wide-ranging applications in network analysis and optimization. Our approach redefines the MWC search by minimizing a \textit{composite distance metric}, which integrates the shortest path distance from a vertex to a cycle with the cycle's own length. This transforms the traditionally global cycle search into an efficient, iterative, node-centric optimization process, drawing inspiration from Dijkstra's algorithm. We have substantiated the algorithm's correctness through rigorous proofs grounded in loop invariants, ensuring its reliability across diverse graph structures.
+To enhance computational efficiency, we incorporated two key optimizations:
+\begin{itemize}
+    \item Node Discarding Technique: Leveraging intermediate results, this method reduces the search space by safely excluding vertices that cannot belong to the MWC, as supported by a formal theorem.
+    \item Graph Pruning Heuristic: This dynamic strategy focuses the search on relevant subgraphs, exploiting the locality principle prevalent in complex networks to achieve significant empirical speedups, while periodic resets preserve global optimality.
+\end{itemize}
+These optimizations contribute to the algorithm's practical efficiency, achieving a complexity of \(\mathcal{O}(|V|^2 \log |V| + F)\), where \(F\) is a graph-structure-dependent factor that can range from \(\mathcal{O}(nm)\) in dense or challenging cases to \(\mathcal{O}(1)\) in highly favorable scenarios, such as sparse graphs with effective pruning. We illustrate the utility of the algorithm by integrating it into the iterative constraint-finding process of Loop Modulus computation, we substantially reduced runtime, as demonstrated in a case study using the Cholera dataset. This practical utility underscores the algorithm's value as a core primitive for advanced network analysis tasks, including clustering, community detection, and robustness assessment.
+
+Our contributions advance the toolkit available for mining cyclic graph topologies by offering a fast, reliable, and theoretically sound solution. The composite distance approach not only improves upon traditional methods that exhaustively explore all cycles or edges but also adapts efficiently to real-world network structures. Looking ahead, potential extensions could include:
+\begin{itemize}
+    \item Parallelization: Distributing the vertex-centric searches across multiple processors to further reduce runtime.
+    \item Dynamic Graphs: Adapting the algorithm to handle graphs with evolving edge weights.
+    \item Directed or Negative-Weighted Graphs: Expanding the framework to directed graphs or those with negative weights (assuming no negative cycles), broadening its applicability.
+\end{itemize}
+As a next step to improve our algorithm for finding minimum weight cycles, we propose exploring future randomized versions inspired by probabilistic methods from graph theory. Drawing on the work of Albin and Poggi-Corradini \cite{albin2016minimal}, randomized sampling techniques based on the probabilistic interpretation of modulus could approximate the composite distance or edge importance, potentially yielding faster algorithms with provable approximation guarantees. Similarly, adapting the Renewal Non-Backtracking Random Walk \cite{moradi2021new} could enable efficient cycle sampling by prioritizing edges with high retracing probabilities. These randomized approaches promise enhanced scalability and efficiency, particularly for large-scale networks, building on the theoretical and practical insights from these studies.
+
+\bibliographystyle{unsrtnat}
+\bibliography{refs} 
+\end{document}
