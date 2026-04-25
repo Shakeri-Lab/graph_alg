@@ -1,0 +1,31 @@
+partner_cusip,name,sic2,is_compustat,n_years,first_period_mean_rank,last_period_mean_rank,delta_rank,last_period_best_rank,category
+673662,Oakley Inc,31,True,10,5458.0,90.33333333333333,5367.666666666667,78,riser
+871013,Swisscom AG,48,True,14,5804.5,534.0,5270.5,97,riser
+705573,Pegasystems Inc,73,True,16,5393.2,269.2,5124.0,81,riser
+902494,Tyson Foods Inc,20,True,17,5238.0,570.8,4667.2,58,riser
+Y0905C,Biocon Ltd,28,False,13,4647.0,174.0,4473.0,145,riser
+J89322,Toppan Printing Co Ltd,27,False,13,4662.25,216.5,4445.75,121,riser
+696429,Pall Corp,35,True,11,4377.333333333333,86.33333333333333,4291.0,74,riser
+554382,Macerich Co,67,True,9,3994.6666666666665,49.666666666666664,3945.0,39,riser
+45613E,ICBC,60,False,7,3885.0,175.5,3709.5,104,riser
+05329Q,Autonomy Corp PLC,73,True,8,3740.5,87.5,3653.0,82,riser
+63243L,Natl Aeronautics Space Admin,96,False,11,3641.3333333333335,96.0,3545.3333333333335,74,riser
+14149Y,Cardinal Health Inc,50,True,22,3727.8571428571427,205.0,3522.8571428571427,33,riser
+892331,Toyota Motor Corp,37,True,18,3874.6666666666665,374.0,3500.6666666666665,119,riser
+16161A,"Chase Manhattan Corp,NY",60,False,8,3561.5,137.0,3424.5,81,riser
+38033Q,Godrej & Boyce Mnfr Co Ltd,36,False,11,3616.6666666666665,207.0,3409.6666666666665,62,riser
+233829,Daimler-Benz AG,37,False,8,51.5,2164.5,-2113.0,563,faller
+302290,Exxon Corp,13,False,9,116.0,2282.6666666666665,-2166.6666666666665,760,faller
+822703,Shell Transport & Trading Co,49,True,12,17.75,2187.0,-2169.25,61,faller
+560904,Malaysia,99,False,15,102.4,2385.4,-2283.0,2003,faller
+093671,H&R Block Inc,72,True,16,213.8,2621.8,-2408.0,2084,faller
+718448,Philips Electronics NV,36,False,7,36.5,2502.0,-2465.5,2479,faller
+907818,Union Pacific Corp,40,True,11,38.333333333333336,2571.6666666666665,-2533.333333333333,1014,faller
+780257,Royal Dutch Petroleum Co,13,True,14,154.25,2725.75,-2571.5,82,faller
+91813F,Uzbekistan,99,False,9,266.6666666666667,2866.0,-2599.3333333333335,2654,faller
+21685Q,Coopers & Lybrand LLP,87,False,8,71.0,2748.0,-2677.0,919,faller
+J92719,Toyota Tsusho Corp,50,False,12,31.0,3062.75,-3031.75,1950,faller
+G1150G,Accenture Ltd,73,False,12,172.0,3297.75,-3125.75,2584,faller
+670768,NYNEX Corp,48,True,6,67.0,3519.0,-3452.0,3241,faller
+452704,ICI PLC,28,True,7,85.5,3666.5,-3581.0,3626,faller
+628918,NKK Corp,33,False,6,139.5,4006.0,-3866.5,3833,faller
