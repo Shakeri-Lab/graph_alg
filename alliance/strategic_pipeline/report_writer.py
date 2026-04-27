@@ -55,25 +55,46 @@ def _plot_durable_value_scatter(df: pd.DataFrame, name: str, year: int,
       Top-right (high risk, high value): Fragile chokepoint — needs safeguards
       Bot-left  (low risk,  low value):  Safe but irrelevant
       Bot-right (high risk, low value):  Bad dependency — avoid
+
+    Candidates with `dep_risk_observed=False` are rendered with an open
+    marker on the y-axis at x=0 to show they are not in the systemic
+    cross-section (DepRisk is unknown, not zero).
     """
     if not {"dep_risk", "durable_value", "firm_name"}.issubset(df.columns):
         return
     if len(df) == 0:
         return
-    x = df["dep_risk"].astype(float).fillna(0.0)
-    y = df["durable_value"].astype(float).fillna(0.0)
-    x_med = float(x.median()) if (x > 0).any() else 0.05
-    y_med = float(y.median())
+    if "dep_risk_observed" in df.columns:
+        observed = df["dep_risk_observed"].fillna(False).astype(bool)
+    else:
+        observed = pd.Series([True] * len(df), index=df.index)
+    df_obs = df[observed]
+    df_unobs = df[~observed]
+
+    x_obs = df_obs["dep_risk"].astype(float)
+    y_obs = df_obs["durable_value"].astype(float)
+    x_med = float(x_obs.median()) if len(x_obs) and (x_obs > 0).any() else 0.05
+    y_all = df["durable_value"].astype(float).fillna(0.0)
+    y_med = float(y_all.median())
 
     fig, ax = plt.subplots(figsize=(8.5, 6.5))
-    ax.scatter(x, y, s=70, c="steelblue", edgecolor="black", linewidth=0.4,
-               alpha=0.85)
+    if len(df_obs):
+        ax.scatter(x_obs, y_obs, s=70, c="steelblue", edgecolor="black",
+                    linewidth=0.4, alpha=0.85,
+                    label="DepRisk observed (in systemic panel)")
+    if len(df_unobs):
+        ax.scatter([0.0] * len(df_unobs),
+                    df_unobs["durable_value"].astype(float),
+                    s=70, c="white", edgecolor="gray", linewidth=0.8,
+                    alpha=0.85, marker="o",
+                    label="DepRisk unobserved (not systemically ranked)")
     # Annotate each point with the firm's short name
     for _, row in df.iterrows():
         nm = str(row["firm_name"])
-        ax.annotate(nm[:24], (row["dep_risk"] or 0.0, row["durable_value"] or 0.0),
-                     fontsize=7, alpha=0.75, xytext=(3, 3),
-                     textcoords="offset points")
+        x_pos = float(row["dep_risk"]) if pd.notna(row["dep_risk"]) else 0.0
+        y_pos = float(row["durable_value"]) if pd.notna(row["durable_value"]) else 0.0
+        ax.annotate(nm[:24], (x_pos, y_pos), fontsize=7, alpha=0.75,
+                     xytext=(3, 3), textcoords="offset points")
 
     # Quadrant lines and labels (use medians of THIS firm's top-N as cuts)
     ax.axvline(x_med, color="gray", linestyle=":", linewidth=0.8)
@@ -101,6 +122,8 @@ def _plot_durable_value_scatter(df: pd.DataFrame, name: str, year: int,
     ax.set_title(f"Durable-value × dependency-risk frontier — {name} ({year})\n"
                  f"Each point: a top candidate. Cuts: this firm's medians.")
     ax.grid(True, alpha=0.3)
+    if len(df_unobs):
+        ax.legend(loc="lower right", fontsize=8, framealpha=0.85)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()

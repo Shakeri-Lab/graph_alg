@@ -58,6 +58,10 @@ W_TENURE_LOG_OFFSET = 1.0       # log(1 + T) avoids log(0)
 W_TENURE_Z_CLIP = 3.0           # cap |z| before sigmoid → max sigmoid(3)≈0.95
 W_TENURE_MIN_TIES_SMOOTH = 2    # need ≥ 2 ties for the median to be informative;
                                   # otherwise return neutral 0.5
+W_TENURE_SHRINKAGE_KAPPA = 5.0  # empirical-Bayes-style shrinkage toward 0.5:
+                                  # w = 0.5 + (n / (n + κ)) × (σ(z) − 0.5).
+                                  # n=2 candidate at z=3 → 0.63 (not 0.95);
+                                  # n=28 candidate stays close to σ(z).
 SIC_BASELINE_MIN_CELL = 10      # below this, fall back to global L2 baseline
 SIC_BASELINE_FALLBACK_STD = 0.5 # for tiny cells where SD is unreliable
 
@@ -250,7 +254,12 @@ def _w_tenure_smooth(bundle: DataBundle, candidate: str, sic2: str,
     mu, sd = base["by_sic"].get(str(sic2), base["global"])
     z = (log_t - mu) / sd
     z_clipped = float(np.clip(z, -W_TENURE_Z_CLIP, W_TENURE_Z_CLIP))
-    w = 1.0 / (1.0 + np.exp(-z_clipped))
+    sigma_z = 1.0 / (1.0 + np.exp(-z_clipped))
+    # Empirical-Bayes-style shrinkage toward neutral 0.5: a 2-tie portfolio
+    # cannot dominate via a single high-tenure observation, while a
+    # 20+-tie portfolio retains its full signal.
+    shrink = n_ties_used / (n_ties_used + W_TENURE_SHRINKAGE_KAPPA)
+    w = 0.5 + shrink * (sigma_z - 0.5)
     return float(w), float(z_clipped), float(median_t), layer_used, n_ties_used
 
 
@@ -299,16 +308,23 @@ def _systemic_lookup() -> dict:
 
 
 def _w_redundancy(candidate: str) -> tuple:
-    """Return (w_redundancy, dep_risk_normalized_in_degree).
+    """Return (w_redundancy, dep_risk, dep_risk_observed).
 
     w_redundancy = exp(-RHO_REDUNDANCY × DepRisk).  At DepRisk=0 returns
     1.0 (no penalty); at DepRisk=1 (the most-systemic-critical partner
     in the cross-section) returns ≈ 0.22.
+
+    Distinguishes observed-and-zero from unobserved.  A candidate not in
+    the systemic-criticality cross-section has unknown DepRisk — we
+    default w_redundancy to 1.0 (no penalty) but flag
+    dep_risk_observed=False so reports can label this as "not
+    systemically ranked" rather than asserting "DepRisk = 0.00".
     """
     sl = _systemic_lookup()
-    dep = float(sl["lookup"].get(candidate, 0.0))
-    w = float(np.exp(-RHO_REDUNDANCY * dep))
-    return w, dep
+    if candidate in sl["lookup"]:
+        dep = float(sl["lookup"][candidate])
+        return float(np.exp(-RHO_REDUNDANCY * dep)), dep, True
+    return 1.0, float("nan"), False
 
 
 def _candidate_pool(bundle: DataBundle, focal: str, layer: str,
@@ -401,7 +417,7 @@ def recommend_partners(focal_cusip: str, goal: str, top_n: int = 20,
             w_t, z_t, med_t, layer_used, n_ties_used = _w_tenure_smooth(
                 bundle, cand, str(sic2), year
             )
-            w_red, dep_risk = _w_redundancy(cand)
+            w_red, dep_risk, dep_observed = _w_redundancy(cand)
             durable_value = s * w_t
             row["median_tenure_yrs"] = med_t
             row["tenure_layer_used"] = layer_used
@@ -409,6 +425,7 @@ def recommend_partners(focal_cusip: str, goal: str, top_n: int = 20,
             row["z_tenure_sic_L2"] = z_t
             row["w_tenure_smooth"] = w_t
             row["dep_risk"] = dep_risk
+            row["dep_risk_observed"] = dep_observed
             row["w_redundancy"] = w_red
             row["durable_value"] = durable_value
             row["score_durable_rent"] = durable_value * w_red
