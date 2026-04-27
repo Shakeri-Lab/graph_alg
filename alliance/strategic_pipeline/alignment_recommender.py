@@ -4,19 +4,34 @@ Given a focal firm and a goal (Innovation or Commercialization), rank
 candidate partners by their structural fit:
 
   - Innovation (L1): closure_score maximized → dense closed triads
-  - Commercialization (L2): brokerage_score maximized → non-redundant
-    market access. Gated by R&D top-quartile status (paper's H2 finding),
-    and multiplied by a persistence factor reflecting the candidate's
-    history of maintaining (rather than churning) L2 ties — the paper's
-    Hankel-DMD persistence-vs-acquisition asymmetry implies the L2 sales
-    premium accrues to sustained ties (≥4 yr), not new ones.
+  - Commercialization (L2): durable-rent ranking that combines
+    structural opportunity (Burt brokerage), relational capability
+    (smooth SIC×layer-z-scored tie tenure), focal absorptive capacity
+    (R&D top-quartile multiplier), and dependency risk (penalty against
+    candidates that are themselves systemically critical).
+
+  Score (commercialization):
+    durable_value(c) = brokerage_L2(focal, c) × w_tenure(c)
+    w_redundancy(c)  = exp(-RHO_REDUNDANCY × DepRisk(c))
+    score(c)         = durable_value(c) × w_redundancy(c)
+    g_RD(focal)      = 1 + ALPHA_RD × 1{focal ∈ top-RD-quartile}
+                       (per-focal multiplier; reported, does not affect
+                       within-firm ranking)
+
+  This implements the Week-1 reframe from "centrality re-ranking" to
+  "durable-rent ranking under dependency risk" (paper Sections 4–5 +
+  systemic-criticality artifact).
 
 Candidate pool: firms present in the relevant layer's 5-year rolling
 window at `year`, excluding current partners.
 """
 
 from __future__ import annotations
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
+
+import numpy as np
 import pandas as pd
 
 from strategic_pipeline.data_loader import (
@@ -32,18 +47,29 @@ GOAL_TO_LAYER = {
     "commercialization": "L2",
 }
 
-# Persistence re-ranker: multiplier on brokerage_score for commercialization.
-# - Below MIN_TIES current ties (any layer): not enough history, neutral.
-# - Otherwise: PERSISTENCE_FLOOR + (1 − floor) × sustained_share, where
-#   sustained_share is the fraction of the candidate's current ties (any
-#   layer) whose dyad first-year is ≥ 4 yr before `year`.
-# We use all-layer ties — not L2-only — because L2 portfolios are sparse
-# (median of 1–2 partners) and the signal we want is the candidate's
-# general "maintain vs churn" tendency, which the Hankel-DMD finding
-# implicitly proxies.
+# Legacy persistence factor (still computed for transparency in the per-firm
+# report; the new score below uses the smooth z-scored w_tenure instead).
 PERSISTENCE_MIN_TIES = 2
 PERSISTENCE_FLOOR = 0.5
-PERSISTENCE_SUSTAINED_AGE = 4  # ≥ 4 yr = "sustained"
+PERSISTENCE_SUSTAINED_AGE = 4
+
+# Smooth tenure-based w_tenure parameters
+W_TENURE_LOG_OFFSET = 1.0       # log(1 + T) avoids log(0)
+W_TENURE_Z_CLIP = 3.0           # cap |z| before sigmoid → max sigmoid(3)≈0.95
+W_TENURE_MIN_TIES_SMOOTH = 2    # need ≥ 2 ties for the median to be informative;
+                                  # otherwise return neutral 0.5
+SIC_BASELINE_MIN_CELL = 10      # below this, fall back to global L2 baseline
+SIC_BASELINE_FALLBACK_STD = 0.5 # for tiny cells where SD is unreliable
+
+# Multiplicative R&D bonus
+ALPHA_RD = 0.5                  # top-quartile focal gets 1.5×; others 1.0×
+
+# Dependency-risk penalty
+RHO_REDUNDANCY = 1.5            # exp(-1.5 × dep_risk) at dep_risk=1 → 0.22
+SYSTEMIC_CSV = Path(
+    "/sfs/gpfs/tardis/project/shakeri-lab/graph_alg/alliance/"
+    "outputs/strategic/aggregate/systemic_criticality.csv"
+)
 
 
 def _candidate_persistence_factor(bundle: DataBundle, candidate: str,
@@ -82,6 +108,207 @@ def _candidate_persistence_factor(bundle: DataBundle, candidate: str,
     sustained_share = sustained / n_ties
     factor = PERSISTENCE_FLOOR + (1.0 - PERSISTENCE_FLOOR) * sustained_share
     return factor, sustained_share, n_ties
+
+
+# ══════════════════════════════════════════════════════════════════
+# Smooth SIC×layer-z-scored w_tenure
+# ══════════════════════════════════════════════════════════════════
+
+def _firm_median_tenure(edges: pd.DataFrame, firm: str,
+                          year_cap: int) -> float:
+    """Median spell length (in years) of `firm`'s ties.
+
+    Spell length for dyad (firm, p) = (max year, min year) + 1 over the
+    rows where both endpoints touch the dyad.  Uses the supplied edge
+    frame already restricted to firm + year_to ≤ year_cap.
+    """
+    if len(edges) == 0:
+        return float("nan")
+    sub = edges[edges["year"] <= year_cap]
+    if len(sub) == 0:
+        return float("nan")
+    # Group by partner CUSIP (the other endpoint)
+    sub = sub.copy()
+    sub["partner"] = np.where(sub["firm_i"] == firm,
+                                sub["firm_j"], sub["firm_i"])
+    span = sub.groupby("partner")["year"].agg(["min", "max"])
+    span["spell"] = span["max"] - span["min"] + 1
+    return float(span["spell"].median())
+
+
+def _candidate_median_tenure(bundle: DataBundle, candidate: str,
+                               year: int, layer: str = "L2") -> tuple:
+    """Return (median_tenure_yrs_layer_or_fallback, used_layer).
+
+    Looks up the candidate's `layer` ties first.  If absent, falls back
+    to all-layer ties (most candidates have at most one or two L2 ties
+    so the L2-only median is brittle).
+    """
+    edges_layer = get_firm_edges(bundle, candidate, year_to=year, layer=layer)
+    med = _firm_median_tenure(edges_layer, candidate, year_cap=year)
+    if not np.isnan(med):
+        return med, layer
+    edges_all = get_firm_edges(bundle, candidate, year_to=year)
+    med_all = _firm_median_tenure(edges_all, candidate, year_cap=year)
+    return med_all, "ALL"
+
+
+@lru_cache(maxsize=8)
+def _sic_layer_tenure_baseline(year: int = 2017,
+                                 layer: str = "L2") -> dict:
+    """Compute (μ, σ) of log(1+median_tenure) across firms in each SIC2,
+    pooled within `layer`.
+
+    Heavy: one pass over the full edge frame plus per-firm spell-length
+    aggregation.  Cached by (year, layer).  Returns a dict with:
+      "global": (mu, sigma)
+      "by_sic": {sic2: (mu, sigma)}  for cells with ≥ SIC_BASELINE_MIN_CELL firms
+    """
+    bundle = load_all()
+    e = bundle.edges
+    e = e[(e["year"] <= year) & (e["layer_code"] == layer)].copy()
+    e["partner_i"] = np.where(e["firm_i"] < e["firm_j"],
+                                e["firm_i"], e["firm_j"])
+    e["partner_j"] = np.where(e["firm_i"] < e["firm_j"],
+                                e["firm_j"], e["firm_i"])
+    span = e.groupby(["partner_i", "partner_j"])["year"].agg(["min", "max"])
+    span["spell"] = span["max"] - span["min"] + 1
+
+    # Each dyad contributes its spell to both endpoints
+    dyad = span.reset_index()[["partner_i", "partner_j", "spell"]]
+    long = pd.concat([
+        dyad.rename(columns={"partner_i": "firm", "partner_j": "_other"}),
+        dyad.rename(columns={"partner_j": "firm", "partner_i": "_other"}),
+    ], ignore_index=True)
+    per_firm = long.groupby("firm")["spell"].median().to_frame("median_tenure")
+    per_firm["log1p_tenure"] = np.log(W_TENURE_LOG_OFFSET + per_firm["median_tenure"])
+
+    # Attach SIC2
+    fm = bundle.firm_meta[["cusip", "sic2"]].drop_duplicates("cusip")
+    per_firm = per_firm.join(fm.set_index("cusip"), how="left")
+
+    global_mu = float(per_firm["log1p_tenure"].mean())
+    global_sd = float(per_firm["log1p_tenure"].std(ddof=0))
+    if not np.isfinite(global_sd) or global_sd == 0:
+        global_sd = SIC_BASELINE_FALLBACK_STD
+
+    by_sic = {}
+    for sic2, g in per_firm.dropna(subset=["sic2"]).groupby("sic2"):
+        if len(g) < SIC_BASELINE_MIN_CELL:
+            continue
+        mu = float(g["log1p_tenure"].mean())
+        sd = float(g["log1p_tenure"].std(ddof=0))
+        if not np.isfinite(sd) or sd == 0:
+            sd = SIC_BASELINE_FALLBACK_STD
+        by_sic[str(sic2)] = (mu, sd)
+    return {"global": (global_mu, global_sd), "by_sic": by_sic}
+
+
+def _w_tenure_smooth(bundle: DataBundle, candidate: str, sic2: str,
+                       year: int) -> tuple:
+    """Smooth tenure weight in (0, 1).
+
+    Returns (w_tenure, z_tenure, median_tenure_yrs, layer_used, n_ties_used).
+
+    Z-score uses SIC×L2 baseline when the candidate's SIC2 cell has
+    enough firms; falls back to the global L2 baseline otherwise.
+    sigmoid(z) maps any candidate to (0, 1) with monotone shape.
+
+    Pathologies handled:
+      - candidates with < W_TENURE_MIN_TIES_SMOOTH ties have an
+        uninformative single-point median, so we return a neutral 0.5
+        weight (the median of a single observation does not generalize
+        to the firm's tendency);
+      - z-scores are clipped to ±W_TENURE_Z_CLIP to suppress extreme
+        outliers (small SIC cells produce tiny σ; an old single tie
+        in a thin cell would otherwise saturate w → 1.0).
+    """
+    edges_layer = get_firm_edges(bundle, candidate, year_to=year, layer="L2")
+    median_t, layer_used = _candidate_median_tenure(bundle, candidate,
+                                                     year, layer="L2")
+    if median_t is None or np.isnan(median_t):
+        return 0.5, float("nan"), float("nan"), layer_used, 0
+
+    # Count partner-distinct ties contributing to the median
+    if layer_used == "L2":
+        sub = edges_layer
+    else:
+        sub = get_firm_edges(bundle, candidate, year_to=year)
+    if len(sub):
+        sub2 = sub.copy()
+        sub2["partner"] = np.where(sub2["firm_i"] == candidate,
+                                     sub2["firm_j"], sub2["firm_i"])
+        n_ties_used = int(sub2["partner"].nunique())
+    else:
+        n_ties_used = 0
+
+    if n_ties_used < W_TENURE_MIN_TIES_SMOOTH:
+        return 0.5, float("nan"), float(median_t), layer_used, n_ties_used
+
+    log_t = np.log(W_TENURE_LOG_OFFSET + median_t)
+    base = _sic_layer_tenure_baseline(year=year, layer="L2")
+    mu, sd = base["by_sic"].get(str(sic2), base["global"])
+    z = (log_t - mu) / sd
+    z_clipped = float(np.clip(z, -W_TENURE_Z_CLIP, W_TENURE_Z_CLIP))
+    w = 1.0 / (1.0 + np.exp(-z_clipped))
+    return float(w), float(z_clipped), float(median_t), layer_used, n_ties_used
+
+
+# ══════════════════════════════════════════════════════════════════
+# Multiplicative g(R&D)
+# ══════════════════════════════════════════════════════════════════
+
+def _g_rd_multiplier(bundle: DataBundle, focal: str, year: int) -> tuple:
+    """Return (g_rd, is_top_quartile).
+
+    g_rd = 1 + ALPHA_RD × 1{focal ∈ top-quartile R&D in own SIC}.
+    Per the paper's H2 finding: the L₂ sales premium is concentrated in
+    top-R&D firms, so we apply a uniform per-focal multiplier rather
+    than a per-candidate one (it does not change within-firm ranking,
+    only the absolute scale and cross-firm comparisons).
+    """
+    is_top = bool(rd_gate(bundle, focal, year))
+    g = 1.0 + (ALPHA_RD if is_top else 0.0)
+    return g, is_top
+
+
+# ══════════════════════════════════════════════════════════════════
+# Dependency-risk penalty (w_redundancy)
+# ══════════════════════════════════════════════════════════════════
+
+@lru_cache(maxsize=1)
+def _systemic_lookup() -> dict:
+    """Map candidate cusip → DepRisk ∈ [0, 1] derived from the corrected
+    systemic-criticality cross-section.
+
+    DepRisk is the candidate's normalized in-degree in the meta-network:
+    high in-degree means many other firms already list this candidate as
+    a top-5 critical partner — adding it to a new portfolio increases
+    aggregate dependence on a hub.  Candidates not in the systemic
+    cross-section default to 0 (unknown / not currently a top critical
+    partner anywhere).
+    """
+    if not SYSTEMIC_CSV.exists():
+        return {"_max_in_degree": 1, "lookup": {}}
+    df = pd.read_csv(SYSTEMIC_CSV, dtype={"partner_cusip": str},
+                       usecols=["partner_cusip", "in_degree"])
+    max_in = max(int(df["in_degree"].max()), 1)
+    lookup = dict(zip(df["partner_cusip"].astype(str),
+                       df["in_degree"].astype(float) / max_in))
+    return {"_max_in_degree": max_in, "lookup": lookup}
+
+
+def _w_redundancy(candidate: str) -> tuple:
+    """Return (w_redundancy, dep_risk_normalized_in_degree).
+
+    w_redundancy = exp(-RHO_REDUNDANCY × DepRisk).  At DepRisk=0 returns
+    1.0 (no penalty); at DepRisk=1 (the most-systemic-critical partner
+    in the cross-section) returns ≈ 0.22.
+    """
+    sl = _systemic_lookup()
+    dep = float(sl["lookup"].get(candidate, 0.0))
+    w = float(np.exp(-RHO_REDUNDANCY * dep))
+    return w, dep
 
 
 def _candidate_pool(bundle: DataBundle, focal: str, layer: str,
@@ -169,6 +396,22 @@ def recommend_partners(focal_cusip: str, goal: str, top_n: int = 20,
             row["sustained_share"] = sustained_share
             row["n_current_ties"] = n_ties
             row["adjusted_brokerage_L2"] = s * factor
+
+            # Week-1 reframe: smooth z-scored w_tenure + DepRisk penalty
+            w_t, z_t, med_t, layer_used, n_ties_used = _w_tenure_smooth(
+                bundle, cand, str(sic2), year
+            )
+            w_red, dep_risk = _w_redundancy(cand)
+            durable_value = s * w_t
+            row["median_tenure_yrs"] = med_t
+            row["tenure_layer_used"] = layer_used
+            row["n_ties_for_tenure"] = n_ties_used
+            row["z_tenure_sic_L2"] = z_t
+            row["w_tenure_smooth"] = w_t
+            row["dep_risk"] = dep_risk
+            row["w_redundancy"] = w_red
+            row["durable_value"] = durable_value
+            row["score_durable_rent"] = durable_value * w_red
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -177,48 +420,54 @@ def recommend_partners(focal_cusip: str, goal: str, top_n: int = 20,
     if goal == "innovation":
         df = df.sort_values("closure_L1", ascending=False)
     else:
-        # Primary: adjusted brokerage (raw brokerage × persistence factor).
-        # Secondary tiebreaker: candidates with ≥2 sustained ties beat
-        # candidates with 1 tie (which default to factor=1.0 for lack of
-        # history).  This surfaces partners with a verifiable maintain-vs-
-        # churn track record over fresh entrants when brokerage saturates.
-        df["_sustained_count"] = (
-            df["sustained_share"].fillna(0.0)
-            * df["n_current_ties"].clip(lower=0)
-        )
+        # Primary: score_durable_rent = durable_value × w_redundancy.
+        # Secondary: durable_value (so two equally-risky candidates rank
+        # by structural value).  Tertiary: n_current_ties (deeper
+        # portfolio breaks ties when both above are equal — addresses
+        # brokerage saturation).
         df = df.sort_values(
-            ["adjusted_brokerage_L2", "_sustained_count", "n_current_ties"],
+            ["score_durable_rent", "durable_value", "n_current_ties"],
             ascending=[False, False, False],
-        ).drop(columns=["_sustained_count"])
+        )
     df = df.head(top_n).reset_index(drop=True)
 
-    # Add R&D gate + persistence-reranker annotation for commercialization
+    # Add R&D + ranker annotations for commercialization
     if goal == "commercialization":
-        gate = rd_gate(bundle, focal_cusip, year)
+        g_rd, gate = _g_rd_multiplier(bundle, focal_cusip, year)
         df.attrs["rd_gate_passed"] = gate
+        df.attrs["rd_gate_multiplier"] = g_rd
         df.attrs["rd_gate_message"] = (
-            "Focal firm IS in top R&D quartile within SIC — L2 premium "
-            "expected per paper's H2 / R&D-conditioning finding."
+            f"Focal firm IS in top R&D quartile within SIC. "
+            f"Per H2 (paper Section 4 / Figure 3B), the L2 commercialization "
+            f"premium is concentrated in this cohort. "
+            f"g(R&D) = {g_rd:.2f}× multiplier applied as a per-focal "
+            f"absorptive-capacity weight on durable_value."
             if gate else
             "WARNING: focal firm is NOT in top R&D quartile within SIC. "
             "The paper's L2 brokerage premium is uniquely concentrated "
             "in top-quartile R&D firms (Figure 3B, Table 3); for this "
             "firm, L2 brokerage recommendations should be treated as "
-            "associational rather than causal. Consider Innovation (L1) "
-            "alliances to build R&D capacity first."
+            "structural fit only, NOT as causal forecasts of sales "
+            f"response (g(R&D) = {g_rd:.2f}, no bonus). Consider "
+            "Innovation (L1) alliances to build R&D capacity first."
         )
-        df.attrs["reranker"] = "persistence_factor"
+        df.attrs["reranker"] = "score_durable_rent"
         df.attrs["reranker_message"] = (
-            "Candidates re-ranked by adjusted_brokerage_L2 = "
-            "brokerage_L2 × persistence_factor, where persistence_factor "
-            f"∈ [{PERSISTENCE_FLOOR}, 1.0] reflects the sustained-share "
-            "(≥4 yr) of the candidate's current L2 ties.  Per the paper's "
-            "Hankel-DMD persistence-vs-acquisition asymmetry (Section 5), "
-            "the L2 sales premium accrues to sustained ties only; "
-            "candidates with high churn are unlikely to be on the "
-            "sustained side of any new tie either.  Candidates with "
-            f"fewer than {PERSISTENCE_MIN_TIES} current L2 ties are left "
-            "unadjusted (insufficient history)."
+            "Candidates ranked by score_durable_rent = "
+            "durable_value × w_redundancy, where:\n"
+            "  • durable_value = brokerage_L2 × w_tenure_smooth — "
+            "Burt structural opportunity × Dyer-Singh relational "
+            "capability.  w_tenure_smooth is the sigmoid of the "
+            "candidate's SIC×L2 z-scored log(1+median tenure), so a "
+            "candidate with above-median tie longevity in its industry "
+            "scores > 0.5; below-median scores < 0.5.\n"
+            "  • w_redundancy = exp(-1.5 × DepRisk), where DepRisk is "
+            "the candidate's normalized in-degree in the corrected "
+            "systemic-criticality cross-section.  Adding a hub partner "
+            "(many other firms already depend on it) is penalized.\n"
+            "Per-focal: g(R&D) is applied as an absorptive-capacity "
+            "multiplier on durable_value (constant within a single firm's "
+            "report; affects cross-firm comparisons only)."
         )
     return df
 

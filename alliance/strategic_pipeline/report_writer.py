@@ -12,6 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from strategic_pipeline.timing_dashboard import (
     TimingReport, plot_tenure_distribution, LAYER_NAMES, LAYERS,
@@ -43,11 +46,72 @@ def _header(name: str, cusip: str, year: int, question: str) -> str:
 # Alignment report
 # ══════════════════════════════════════════════════════════════════
 
+def _plot_durable_value_scatter(df: pd.DataFrame, name: str, year: int,
+                                  out_path: Path) -> None:
+    """2D scatter of (DepRisk, durable_value) with quadrant labels.
+
+    Quadrants:
+      Top-left  (low risk,  high value): Durable bridge — preferred
+      Top-right (high risk, high value): Fragile chokepoint — needs safeguards
+      Bot-left  (low risk,  low value):  Safe but irrelevant
+      Bot-right (high risk, low value):  Bad dependency — avoid
+    """
+    if not {"dep_risk", "durable_value", "firm_name"}.issubset(df.columns):
+        return
+    if len(df) == 0:
+        return
+    x = df["dep_risk"].astype(float).fillna(0.0)
+    y = df["durable_value"].astype(float).fillna(0.0)
+    x_med = float(x.median()) if (x > 0).any() else 0.05
+    y_med = float(y.median())
+
+    fig, ax = plt.subplots(figsize=(8.5, 6.5))
+    ax.scatter(x, y, s=70, c="steelblue", edgecolor="black", linewidth=0.4,
+               alpha=0.85)
+    # Annotate each point with the firm's short name
+    for _, row in df.iterrows():
+        nm = str(row["firm_name"])
+        ax.annotate(nm[:24], (row["dep_risk"] or 0.0, row["durable_value"] or 0.0),
+                     fontsize=7, alpha=0.75, xytext=(3, 3),
+                     textcoords="offset points")
+
+    # Quadrant lines and labels (use medians of THIS firm's top-N as cuts)
+    ax.axvline(x_med, color="gray", linestyle=":", linewidth=0.8)
+    ax.axhline(y_med, color="gray", linestyle=":", linewidth=0.8)
+
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    ax.text(xmin + (x_med - xmin) * 0.5, ymax - (ymax - y_med) * 0.05,
+            "Durable bridges\n(preferred)",
+            ha="center", va="top", fontsize=9, color="darkgreen", weight="bold")
+    ax.text(xmax - (xmax - x_med) * 0.5, ymax - (ymax - y_med) * 0.05,
+            "Fragile chokepoints\n(safeguard required)",
+            ha="center", va="top", fontsize=9, color="darkorange",
+            weight="bold")
+    ax.text(xmin + (x_med - xmin) * 0.5, ymin + (y_med - ymin) * 0.05,
+            "Safe but irrelevant",
+            ha="center", va="bottom", fontsize=9, color="dimgray")
+    ax.text(xmax - (xmax - x_med) * 0.5, ymin + (y_med - ymin) * 0.05,
+            "Bad dependency (avoid)",
+            ha="center", va="bottom", fontsize=9, color="firebrick",
+            weight="bold")
+
+    ax.set_xlabel("DepRisk (normalized systemic in-degree)  →")
+    ax.set_ylabel("Durable value = brokerage_L2 × w_tenure_smooth")
+    ax.set_title(f"Durable-value × dependency-risk frontier — {name} ({year})\n"
+                 f"Each point: a top candidate. Cuts: this firm's medians.")
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
 def write_alignment_report(cusip: str, name: str, year: int,
                              goal: str, df: pd.DataFrame) -> tuple:
     d = _firm_dir(cusip)
     md_path = d / f"alignment_{goal}.md"
     csv_path = d / f"alignment_{goal}_top.csv"
+    fig_path = d / f"fig_alignment_{goal}_frontier.png"
 
     with open(md_path, "w") as f:
         f.write(_header(name, cusip, year, f"Alignment ({goal})"))
@@ -83,22 +147,42 @@ def write_alignment_report(cusip: str, name: str, year: int,
                 "newly-acquired L₂ brokerage produces *no* sales "
                 "response. Value accrues to **sustained** ties "
                 "(≥4 yr), not to acquisition.\n\n"
-                "### How candidates are ranked\n\n"
-                "$\\text{adjusted\\_brokerage}_{L_2}(c) "
-                "= \\underbrace{\\text{brokerage}_{L_2}(\\text{focal}, c)}_{"
-                "\\text{Burt-style structural opportunity}} "
-                "\\;\\times\\; "
-                "\\underbrace{\\text{persistence\\_factor}(c)}_{"
-                "\\text{Dyer-Singh-style relational capability proxy}}$\n\n"
-                "where $\\text{persistence\\_factor}(c) "
-                "\\in [0.5, 1.0]$ is the sustained-share "
-                "(≥4 yr first-year) of candidate $c$'s current "
-                "ties across all four layers in the 5-year window. "
-                "Candidates with fewer than two current ties default "
-                "to a neutral factor of 1.0 (insufficient history).  "
-                "Tiebreaker: candidates with more sustained ties "
-                "and richer current portfolios beat single-tie "
-                "newcomers when the brokerage score saturates.\n\n"
+                "### How candidates are ranked (durable-rent score)\n\n"
+                "$\\text{score\\_durable\\_rent}(c) "
+                "= \\underbrace{"
+                "\\text{brokerage}_{L_2}(\\text{focal}, c) \\times "
+                "w_{\\text{tenure}}(c)}_{"
+                "\\text{durable value}} \\;\\times\\; "
+                "\\underbrace{\\exp\\!\\bigl(-\\rho \\cdot "
+                "\\text{DepRisk}(c)\\bigr)}_{"
+                "w_{\\text{redundancy}}(c)}$\n\n"
+                "with a per-focal absorptive-capacity multiplier "
+                "$g(\\text{R\\&D}_f) = "
+                "1 + \\alpha \\cdot \\mathbf{1}\\{f \\in \\text{top-quartile R\\&D}\\}$.\n\n"
+                "Component definitions:\n\n"
+                "- **brokerage_L2** ∈ [0, 1] — Burt-style structural "
+                "opportunity: fraction of candidate's L2 neighborhood "
+                "*not* shared with the focal.\n"
+                "- **w_tenure_smooth** ∈ (0, 1) — Dyer-Singh-style "
+                "relational capability: $\\sigma(z)$ where $z$ is the "
+                "candidate's $\\log(1 + \\text{median tenure})$ "
+                "z-scored against the SIC×L2 cohort baseline. "
+                "Candidates above the cohort median score $> 0.5$; "
+                "below score $< 0.5$. Industry-normalized so a short "
+                "spell in a fast-cycling sector does not look like "
+                "churn.\n"
+                "- **DepRisk** ∈ [0, 1] — candidate's normalized "
+                "in-degree in the corrected systemic-criticality "
+                "cross-section. High = many other firms already list "
+                "this candidate as a top-5 critical partner.\n"
+                "- **w_redundancy** = $\\exp(-1.5 \\cdot "
+                "\\text{DepRisk})$ — penalty for adding a hub partner "
+                "(creates portfolio fragility, paper §6 systemic "
+                "report).\n"
+                "- **durable_value** = brokerage_L2 × w_tenure_smooth "
+                "— y-axis of the frontier scatter below.\n"
+                "- **score_durable_rent** = durable_value × "
+                "w_redundancy — the column the recommendation ranks on.\n\n"
             )
             f.write(f"**R&D gate** (top-quartile R\\&D intensity "
                     f"within your SIC): "
@@ -114,10 +198,35 @@ def write_alignment_report(cusip: str, name: str, year: int,
             f.write(df.to_markdown(index=False))
             f.write("\n")
 
+        if goal == "commercialization" and len(df):
+            try:
+                _plot_durable_value_scatter(df, name, year, fig_path)
+                f.write(f"\n## Durable-value × dependency-risk frontier\n\n"
+                        f"![Frontier]({fig_path.name})\n\n"
+                        "**Quadrant reading** (cuts at this firm's medians):\n\n"
+                        "- **Top-left — Durable bridges** (low risk, high "
+                        "durable value). The preferred partner type: "
+                        "structurally non-redundant, demonstrably persistent, "
+                        "not yet a systemic hub.\n"
+                        "- **Top-right — Fragile chokepoints** (high risk, "
+                        "high durable value). Valuable but consider redundancy "
+                        "safeguards (multi-source contracting, equity stake, "
+                        "or M&A) before depending on a partner that many "
+                        "other firms already depend on.\n"
+                        "- **Bottom-left — Safe but irrelevant**. No "
+                        "commercialization upside, no exposure created.\n"
+                        "- **Bottom-right — Bad dependency**. Avoid unless "
+                        "there is a separate strategic reason; the sales "
+                        "premium is small and the systemic exposure is "
+                        "large.\n\n")
+            except Exception as exc:
+                f.write(f"\n_(frontier scatter could not be rendered: "
+                        f"{exc})_\n\n")
+
         f.write("\n---\n\n")
         if goal == "commercialization":
             f.write(
-                "### Why the persistence re-ranker is more "
+                "### Why the durable-rent score is more "
                 "accurate than raw brokerage\n\n"
                 "The previous version of this recommender ranked "
                 "candidates on raw L₂ brokerage alone.  Two "

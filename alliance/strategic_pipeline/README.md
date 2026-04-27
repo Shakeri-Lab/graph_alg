@@ -139,3 +139,47 @@ outputs will automatically reflect the new artifacts on the next
 invocation. The hard-coded paper coefficients in
 `timing_dashboard.py::SALES_CASCADE` (Table 3 of the paper) should be
 updated manually if the regression output changes.
+
+## Week 1: alignment-recommender durable-rent reframe (directional, not yet backtested)
+
+The commercialization branch of `alignment_recommender.py` has been
+restructured around the durable-rent score:
+
+```
+durable_value(c)        = brokerage_L2(focal, c)  ×  w_tenure_smooth(c)
+w_redundancy(c)         = exp(-1.5  ×  DepRisk(c))
+score_durable_rent(c)   = durable_value(c)  ×  w_redundancy(c)
+g(R&D_focal)            = 1 + 0.5 · 1{focal ∈ top-quartile R&D}    (per-focal)
+```
+
+with:
+
+- `w_tenure_smooth ∈ (0, 1)` — sigmoid of the candidate's
+  `log(1+median_tenure)` z-scored against the SIC×L2 cohort
+  baseline. Z is clipped to ±3; candidates with fewer than two
+  ties default to a neutral 0.5.
+- `DepRisk ∈ [0, 1]` — candidate's normalized in-degree in the
+  corrected systemic-criticality cross-section
+  (`outputs/strategic/aggregate/systemic_criticality.csv`).
+- `g(R&D)` — per-focal absorptive-capacity multiplier; affects
+  cross-firm comparisons only, not within-firm ranking.
+
+The per-firm `alignment_commercialization.md` report now embeds a
+2-axis scatter `(DepRisk, durable_value)` with quadrant labels
+(durable bridge / fragile chokepoint / safe but irrelevant /
+bad dependency).
+
+**Status:** the score is **directional**, motivated by the paper's
+Hankel-DMD persistence-vs-acquisition asymmetry (Section 5) and the
+systemic-criticality companion note. It has **not yet been backtested
+out of time.** The hyperparameters `κ_shrinkage`, `ρ=1.5`, the R&D
+threshold, the SIC×layer minimum cell size, and the "missing DepRisk
+= 1.0" convention are placeholders pending the Week 2 backtest
+(train 1991–2010, rank 2011, evaluate 2012–17 on top-k persistence
+hit rate, sales response, and ΔDepRisk).
+
+**Do not yet treat individual `score_durable_rent` rankings as causal
+forecasts of joint future value.** Treat them as a structurally
+defensible re-ordering of `brokerage_L2` that incorporates
+behavioral signals of alliance-management capability (relational view)
+and explicit dependency risk (systemic view).
