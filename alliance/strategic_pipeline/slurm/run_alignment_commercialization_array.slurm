@@ -8,7 +8,7 @@
 #   sbatch --array=4001-7626%50 strategic_pipeline/slurm/run_alignment_commercialization_array.slurm
 #
 #SBATCH --job-name=align_comm_arr
-#SBATCH --account=shakeri-lab
+#SBATCH --account=cdt_computing
 #SBATCH --partition=standard
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

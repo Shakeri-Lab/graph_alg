@@ -11,7 +11,7 @@
 #   sbatch strategic_pipeline/slurm/run_all_firms_array.slurm
 #
 #SBATCH --job-name=alliance_strat_arr
-#SBATCH --account=shakeri-lab
+#SBATCH --account=cdt_computing
 #SBATCH --partition=standard
 #SBATCH --array=1-7626%50
 #SBATCH --nodes=1

@@ -4,7 +4,7 @@
 #   sbatch --export=ALL,CUSIP=747525,YEAR=2005 strategic_pipeline/slurm/run_single_firm.slurm
 #
 #SBATCH --job-name=alliance_strat
-#SBATCH --account=shakeri-lab
+#SBATCH --account=cdt_computing
 #SBATCH --partition=standard
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

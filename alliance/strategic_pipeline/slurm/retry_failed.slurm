@@ -8,7 +8,7 @@
 #   sbatch --array=1-481%25 strategic_pipeline/slurm/retry_failed.slurm
 #
 #SBATCH --job-name=alliance_retry
-#SBATCH --account=shakeri-lab
+#SBATCH --account=cdt_computing
 #SBATCH --partition=standard
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
