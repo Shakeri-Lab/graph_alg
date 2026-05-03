@@ -730,6 +730,71 @@ The systemic-criticality panel from this paper retains its
 operational role --- as a dependency-exposure overlay on the
 brokerage-ranked top-$k$, not as the rank itself.
 
+\subsection{Cheap interaction features do not break the collapse}
+\label{sec:interaction-features}
+
+A natural objection is that the Week-2A diagnostic was conducted with
+a feature set that was almost entirely candidate-side, and that adding
+genuine focal-conditional interaction features should restore
+personalization.  We tested this.  On the same 18M-row scoring frame
+we computed seven $(f, c)$-conditional features that are cheap to
+construct from the existing data --- partner-set overlap counts,
+Jaccard similarity, share of focal partners that are candidate
+partners, same-SIC2 indicator, same-SIC1 indicator, SIC2 nominal
+distance, and nation match --- and re-ran the personalization
+diagnostic with each feature alone, with each feature combined with
+$\text{brokerage}_{L_2}$ via within-focal rank-sum, and with all
+features combined.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption{Personalization diagnostic with cheap focal-conditional
+interaction features added.  None of the seven new features beats
+$\text{brokerage}_{L_2}$ alone; combinations tie or underperform it.}
+\label{tab:interaction}
+\begin{tabular}{lrll}
+\toprule
+Ranker & $N_{\mathrm{eff}}^{\text{top-1}}$ & Top candidate & Top share \\
+\midrule
+\texttt{brokerage\_only} (Week-2A baseline) & \textbf{1{,}811.9} & Acuity Brands Inc & 0.13\% \\
+\texttt{jaccard\_only}                & 1{,}734.1 & New York Power Authority & 0.20\% \\
+\texttt{n\_shared\_partners\_only}    & 1{,}630.3 & General Electric Co      & 0.43\% \\
+\texttt{share\_focal\_in\_c\_only}    & 1{,}630.3 & General Electric Co      & 0.43\% \\
+\texttt{nation\_match\_only}          & 1{,}521.1 & Twitter Inc              & 0.16\% \\
+\texttt{same\_sic2\_only}             & 1{,}125.5 & HSBC                     & 0.39\% \\
+\texttt{broker\_x\_jaccard} (rank-sum)  & 1{,}732.2 & New York Power Authority & 0.20\% \\
+\texttt{broker\_x\_shared} (rank-sum)   & 1{,}626.5 & General Electric Co      & 0.43\% \\
+\texttt{broker\_x\_nation} (rank-sum)   & 1{,}521.6 & University of Guelph     & 0.16\% \\
+\texttt{broker\_x\_sic2} (rank-sum)     & 1{,}125.5 & HSBC                     & 0.39\% \\
+\texttt{full\_interaction} (4-feature rank-sum) & 831.2 & Everi Holdings Inc & 0.84\% \\
+\texttt{raw\_score} (Week-2A full)    & 1.000 & Stanford University & 100.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The mechanism is simple but not obvious from the formulation.  Each
+interaction feature is focal-conditional in its values, but the
+\emph{argmax} of any feature also has to vary across focals.
+Partner-set features rank degree hubs (GE) high almost everywhere
+even though the values per focal differ; \texttt{same\_sic2} and
+\texttt{nation\_match} are partitions whose ``match'' set has
+random within-partition order, so whichever same-SIC firm appears
+first wins every focal in that SIC (HSBC dominates among financial
+focals).  Combining brokerage with these features via rank-sum
+\emph{halves} the personalization in the worst case ($N_{\mathrm{eff}}
+\approx 831$) because the interaction features dilute brokerage's
+focal-specificity with their own globally-popular tops.
+
+The implication is that $\text{brokerage}_{L_2}(f, c)$ is the
+personalization ceiling under in-data features.  To exceed it would
+require new data the current pipeline does not expose: a tie-formation
+hazard model conditional on $(f, c)$ covariates, cross-portfolio
+similarity (patent-class, earnings-call topic embeddings), geographic
+or supply-chain proximity beyond nation, or board-interlock and M\&A
+history.  These are real options for a follow-on phase but each
+requires either external data or substantial modeling work.
+
 % =====================================================================
 \section{Limitations}
 \label{sec:limitations}
