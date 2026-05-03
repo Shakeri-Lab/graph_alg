@@ -1,0 +1,14 @@
+ranker,n_eff_top1,top_candidate,top_candidate_share
+global_degree_all,1.0007871604632679,General Electric Co,0.9996066089693155
+global_degree_l2,1.0010495929935328,Sony Corp,0.999475478625754
+n_current_ties,1.0007871604632679,General Electric Co,0.9996066089693155
+w_tenure_only,1.0007870915742791,MIT,0.9996066089693155
+brokerage_only,1811.935319042871,Acuity Brands Inc,0.0013113034356150013
+brokerage_x_tenure,1.0007870915742791,MIT,0.9996066089693155
+raw_score,1.0,Stanford University,1.0
+blend_000,1.0007870915742791,MIT,0.9996066089693155
+blend_025,1.0,Via Licensing Corp,1.0
+blend_050,1.0,Via Licensing Corp,1.0
+blend_075,1.0,Office Depot Inc,1.0
+blend_100,1.0,Stanford University,1.0
+resid_rank,1.0007870915742791,MIT,0.9996066089693155
