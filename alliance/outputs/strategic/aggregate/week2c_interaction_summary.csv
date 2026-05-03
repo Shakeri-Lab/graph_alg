@@ -1,0 +1,13 @@
+ranker,description,n_focals,n_eff_top1,top_candidate,top_candidate_share
+brokerage_only,Week-2A brokerage_L2 only,7626,1811.935319042871,Acuity Brands Inc,0.0013113034356150013
+raw_score,Week-2A raw durable-rent score,7626,1.0,Stanford University,1.0
+n_shared_partners_only,shared partner count alone,7626,1630.2947970396951,General Electric Co,0.004327301337529505
+jaccard_only,Jaccard partner overlap alone,7626,1734.1327528625955,New York Power Authority,0.001966955153422502
+share_focal_in_c_only,share of focal partners that are c partners,7626,1630.2947970396951,General Electric Co,0.004327301337529505
+same_sic2_only,same SIC2 indicator alone (with random within tie),7626,1125.4814212726426,HSBC,0.003933910306845004
+nation_match_only,nation match indicator alone,7626,1521.0513155829892,Twitter Inc,0.0015735641227380016
+broker_x_jaccard,rank(brokerage) + rank(jaccard),7626,1732.1700125096802,New York Power Authority,0.001966955153422502
+broker_x_shared,rank(brokerage) + rank(n_shared_partners),7626,1626.4648170936346,General Electric Co,0.004327301337529505
+broker_x_sic2,rank(brokerage) + rank(same_sic2),7626,1125.4814212726426,HSBC,0.003933910306845004
+broker_x_nation,rank(brokerage) + rank(nation_match),7626,1521.6084772370489,University of Guelph,0.0015735641227380016
+full_interaction,rank-sum: brokerage + jaccard + same_sic2 + nation_match,7626,831.2494782882137,Everi Holdings Inc,0.008392341987936008
