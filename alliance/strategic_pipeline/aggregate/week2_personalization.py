@@ -68,6 +68,17 @@ PERSONAL_DIR.mkdir(parents=True, exist_ok=True)
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def personal_dir_for_year(year: int) -> Path:
+    """Per-year subdir so backtest years (e.g., 2011) don't clobber the
+    main 2017 frame. The 2017 directory keeps the legacy un-suffixed
+    name for backward compatibility."""
+    if year == 2017:
+        return PERSONAL_DIR
+    d = OUTPUT_DIR / f"week2_personalization_{year}"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Candidate-type classifier (light-touch, name- and SIC-based)
 # ──────────────────────────────────────────────────────────────────────
@@ -268,7 +279,8 @@ def write_focal_parquet(focal_cusip: str, year: int,
                           candidate_features: pd.DataFrame,
                           bundle: DataBundle) -> Path:
     df = score_focal_full(focal_cusip, year, candidate_features, bundle)
-    out = PERSONAL_DIR / f"{focal_cusip}.parquet"
+    out_dir = personal_dir_for_year(year)
+    out = out_dir / f"{focal_cusip}.parquet"
     if len(df):
         df.to_parquet(out, index=False)
     else:
