@@ -429,6 +429,13 @@ def recommend_partners(focal_cusip: str, goal: str, top_n: int = 20,
             row["w_redundancy"] = w_red
             row["durable_value"] = durable_value
             row["score_durable_rent"] = durable_value * w_red
+            # Annotation scalar: brokerage × all durable-rent components.
+            # NOT used in the rank (Week-2A/2B finding: multiplicative
+            # combination collapses to one universal candidate). Reported
+            # alongside as a value-and-risk annotation on the brokerage
+            # frontier.
+            g_rd_focal, _ = _g_rd_multiplier(bundle, focal_cusip, year)
+            row["annotated_value"] = s * w_t * g_rd_focal * w_red
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -437,15 +444,16 @@ def recommend_partners(focal_cusip: str, goal: str, top_n: int = 20,
     if goal == "innovation":
         df = df.sort_values("closure_L1", ascending=False)
     else:
-        # Primary: score_durable_rent = durable_value × w_redundancy.
-        # Secondary: durable_value (so two equally-risky candidates rank
-        # by structural value).  Tertiary: n_current_ties (deeper
-        # portfolio breaks ties when both above are equal — addresses
-        # brokerage saturation).
-        df = df.sort_values(
-            ["score_durable_rent", "durable_value", "n_current_ties"],
-            ascending=[False, False, False],
-        )
+        # Brokerage-frontier ranker (Week-2B reframe).  Sort by
+        # focal-specific brokerage_L2 only.  No candidate-side
+        # tiebreaker — candidate-side tiebreakers recreate the
+        # Stanford-style collapse inside brokerage-saturated regions
+        # (Week-2A/2C diagnostics).  Within saturated brokerage = 1.0
+        # blocks the order is intentionally undetermined; the tie audit
+        # in week2b_brokerage_tie_audit.py quantifies the resulting
+        # ambiguity.  Durable-rent components are reported as the
+        # annotated_value column, not used in the rank.
+        df = df.sort_values(["brokerage_L2"], ascending=[False])
     df = df.head(top_n).reset_index(drop=True)
 
     # Add R&D + ranker annotations for commercialization
@@ -468,23 +476,38 @@ def recommend_partners(focal_cusip: str, goal: str, top_n: int = 20,
             f"response (g(R&D) = {g_rd:.2f}, no bonus). Consider "
             "Innovation (L1) alliances to build R&D capacity first."
         )
-        df.attrs["reranker"] = "score_durable_rent"
+        df.attrs["reranker"] = "brokerage_frontier_with_annotations"
         df.attrs["reranker_message"] = (
-            "Candidates ranked by score_durable_rent = "
-            "durable_value × w_redundancy, where:\n"
-            "  • durable_value = brokerage_L2 × w_tenure_smooth — "
-            "Burt structural opportunity × Dyer-Singh relational "
-            "capability.  w_tenure_smooth is the sigmoid of the "
-            "candidate's SIC×L2 z-scored log(1+median tenure), so a "
-            "candidate with above-median tie longevity in its industry "
-            "scores > 0.5; below-median scores < 0.5.\n"
-            "  • w_redundancy = exp(-1.5 × DepRisk), where DepRisk is "
-            "the candidate's normalized in-degree in the corrected "
-            "systemic-criticality cross-section.  Adding a hub partner "
-            "(many other firms already depend on it) is penalized.\n"
-            "Per-focal: g(R&D) is applied as an absorptive-capacity "
-            "multiplier on durable_value (constant within a single firm's "
-            "report; affects cross-firm comparisons only)."
+            "Candidates are ranked by focal-specific L2 brokerage "
+            "opportunity (brokerage_L2). Durability, absorptive "
+            "capacity, and systemic-dependency risk are reported as "
+            "value/risk annotations on the brokerage frontier; they "
+            "are NOT used to reorder the candidate list.\n"
+            "  • brokerage_L2 (rank input) — Burt-style structural "
+            "opportunity; the only focal-specific feature in the "
+            "current pipeline.  Saturates at 1.0 for ~99% of "
+            "candidates in sparse-portfolio focals; within saturated "
+            "blocks the recommender's ordering is intentionally "
+            "ambiguous — see week2b_brokerage_tie_audit for the "
+            "quantification.\n"
+            "  • w_tenure_smooth (annotation) — Dyer-Singh-style "
+            "relational capability: sigmoid of SIC×L2 z-scored "
+            "log(1+median tenure).\n"
+            "  • g(R&D) (annotation) — per-focal absorptive-capacity "
+            "multiplier, motivated by the L2 sales premium's R&D "
+            "stratification.\n"
+            "  • w_redundancy = exp(-1.5 × DepRisk) (annotation) — "
+            "penalty for adding a candidate already in the systemic "
+            "cross-section's critical-partner panel.\n"
+            "  • annotated_value = brokerage_L2 × w_tenure_smooth × "
+            "g(R&D) × w_redundancy — the durable-rent value of a "
+            "selected candidate.  REPORTED, NOT RANKED.\n"
+            "Empirical motivation: the Week-2A/2C diagnostics found "
+            "that any multiplicative score over candidate-side "
+            "features collapses to one universal candidate; the "
+            "Week-2B backtest found brokerage_L2 catches 15/16 "
+            "in-pool realized 2011 partners at K=5 while the "
+            "multiplicative score catches 0/16 at K=5."
         )
     return df
 
