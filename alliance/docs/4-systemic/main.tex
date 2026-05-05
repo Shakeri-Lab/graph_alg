@@ -45,11 +45,11 @@ Systemic-Criticality Mapping of the Multiplex Alliance Economy\par}
 \noindent
 Corporate network studies typically rank firms by their own position in
 the network---degree, betweenness, eigenvector centrality.  These
-measures describe what a firm \emph{has}, not what other firms would
-\emph{lose} if the firm vanished.  We construct a
-\emph{systemic-criticality meta-network} from the full-graph strategic
-alliance panel, using canonical ultimate-parent CUSIP-6 identifiers and
-partner-specific vulnerability scores.  The corrected 2017 snapshot
+measures describe what a firm \emph{has}, not what other firms are
+structurally \emph{exposed to losing} if the firm vanished.  We
+construct a \emph{systemic-criticality meta-network} from the
+full-graph strategic alliance panel, using canonical ultimate-parent
+CUSIP-6 identifiers and partner-specific vulnerability scores.  The corrected 2017 snapshot
 contains 7{,}626 generated focal-firm reports, 1{,}754 active focal
 firms with non-empty dependency portfolios, 4{,}918 focal-partner
 candidate dependencies, and 3{,}690 top-5 directed critical-dependency
@@ -64,10 +64,16 @@ AT\&T), financial/holding companies (Blackstone, Berkshire Hathaway,
 Carlyle), and several non-Compustat state or foreign entities.  The
 analysis also reports top-$k$ sensitivity, null-model concentration,
 estimator robustness, ablations, a backtest on observed exits, and a
-system-removal stress test.  The central conclusion is more cautious
-than the prototype: the meta-network is a structural dependency map and
-stress-testing device, not direct evidence that every top-ranked
-partner exit would causally destroy value.
+system-removal stress test.  A downstream recommender audit further
+shows that partner-level systemicity does not personalize focal-firm
+partner choice: multiplicative candidate-side scores collapse to
+universal candidates, and inside saturated brokerage frontiers the
+candidate-side annotations even anti-correlate with realized new
+$L_2$ partner selections.  The central conclusion is more cautious
+than the prototype: the meta-network is a structural dependency map
+and stress-testing device, not direct evidence that every top-ranked
+partner exit would causally destroy value, and not a standalone
+firm-level recommender.
 \end{abstract}
 
 % =====================================================================
@@ -88,8 +94,8 @@ phelps2010} measures firms by their \emph{own} network position: who
 they are connected to, how centrally they sit.  These measures are
 descriptive of the firm, not of the firms that depend on it.  The
 strategic pipeline developed in the companion work provides the
-ingredients for a different question: \emph{Whose exit would matter to
-many other firms at once?}
+ingredients for a different question: \emph{Whose exit is many other
+firms simultaneously structurally exposed to?}
 
 The first prototype answered this question by aggregating top-5 rows
 from per-firm vulnerability CSVs.  That prototype was useful but
@@ -145,10 +151,26 @@ Each edge carries a predicted loss score:
 \end{equation}
 where $m_{fp\lambda t}$ is the dyad's layer mix and
 $\widehat{\beta}_{\lambda}$ is the layer-specific partner-exit event
-study coefficient.  The multiplier $S_{fpt}$ combines five
-partner-specific features: tie strength, dyad tenure, redundancy
-discount, partner layer-centrality percentile, and first-order
-counterfactual betweenness exposure.
+study coefficient.  The multiplier $S_{fpt}$ is the product of five
+partner-specific factors,
+\begin{equation}
+  S_{fpt} = s^{\text{strength}}_{fpt} \cdot
+            s^{\text{tenure}}_{fpt}   \cdot
+            s^{\text{redundancy}}_{fpt} \cdot
+            s^{\text{centrality}}_{pt} \cdot
+            s^{\text{exposure}}_{fpt},
+\end{equation}
+each in a bounded non-negative range.  $s^{\text{strength}}_{fpt}$
+is a normalized count of active dyad-deals in the rolling window;
+$s^{\text{tenure}}_{fpt}$ is a sigmoid in dyad first-year age;
+$s^{\text{redundancy}}_{fpt}$ discounts a partner whose layer-SIC
+slot is already covered by other partners in the focal's
+portfolio; $s^{\text{centrality}}_{pt}$ is the partner's
+layer-betweenness percentile in year $t$; and
+$s^{\text{exposure}}_{fpt}$ is the first-order counterfactual
+exposure $|\Delta c^{(\lambda)}_{fpt}|$ defined below.  Exact
+definitions and numerical ranges are recorded in
+\texttt{strategic\_pipeline/aggregate/build\_systemic\_criticality.py}.
 
 The first-order counterfactual exposure is:
 \begin{equation}
@@ -261,9 +283,11 @@ predicted log-market-value cost.  Table~\ref{tab:top20} lists the top
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.78\textwidth]{fig_m1_top_firms.png}
-\caption{Top 30 systemic-critical firms in the corrected 2017
-meta-network.  Bar length is aggregate predicted log-market-value loss
-across focal firms that rank the partner in their top five.}
+\caption{Top 30 systemic-critical partners and entities in the
+corrected 2017 meta-network.  Bar length is aggregate predicted
+log-market-value exposure across focal firms that rank the partner
+in their top five.  Includes Compustat firms, sovereign/state entities,
+private-equity vehicles, and foreign listings.}
 \label{fig:m1}
 \end{figure}
 
@@ -383,8 +407,10 @@ one of the top-50 partners.
 \centering
 \includegraphics[width=0.95\textwidth]{fig_m4_meta_network.png}
 \caption{The corrected systemic-criticality meta-network (top-50
-partners).  Force-directed layout; partner node size $\propto$
-in-degree; color encodes SIC2; gray nodes are focal firms.}
+partners; illustrative force-directed layout).  Partner node size
+$\propto$ in-degree; color encodes SIC2; gray nodes are focal firms.
+The figure is a visual summary of the panel's connectivity, not a
+basis for inference on individual edges.}
 \label{fig:m4}
 \end{figure}
 
@@ -403,6 +429,16 @@ during the dot-com overhang, and troughs at 88.1 in 2013.  The
 distinct-partner count peaks in 2000 at 6{,}169 and contracts to 2{,}939
 in 2017, a 52\% decline (Figure~\ref{fig:d5}).  The post-2008 alliance
 slowdown is the single most visible macro feature in the meta-network.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.80\textwidth]{fig_d5_system_stress.png}
+\caption{Aggregate systemic stress (orange, left axis) and active-partner
+count (teal, right axis), 1995--2017.  Both move with the alliance
+activity cycle; the post-2008 contraction is pronounced on both
+series.}
+\label{fig:d5}
+\end{figure}
 
 \paragraph{Leaderboard persistence.}
 Year-over-year retention of the top-20 systemic-critical set averages
@@ -467,16 +503,6 @@ private-equity vehicles (Blackstone, Carlyle), and non-US public
 firms lacking a Compustat North-America match.  The meta-network is
 decidedly not US-centric, and the Compustat share is roughly
 stationary once the dot-com buildout is netted out.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.80\textwidth]{fig_d5_system_stress.png}
-\caption{Aggregate systemic stress (orange, left axis) and active-partner
-count (teal, right axis), 1995--2017.  Both move with the alliance
-activity cycle; the post-2008 contraction is pronounced on both
-series.}
-\label{fig:d5}
-\end{figure}
 
 % =====================================================================
 \section{Robustness and Experiments}
@@ -561,8 +587,8 @@ test, not as a validated one-year realized-drawdown predictor.
 \subsection{System stress test}
 
 In the 2017 stress test, removing the top five systemic partners
-produces an aggregate predicted dollar loss of 192{,}800 in Compustat
-market-value units, 31.8 times the random-removal mean.  Removing the
+produces an aggregate model-implied market-value exposure of 192{,}800
+in Compustat units, 31.8 times the random-removal mean.  Removing the
 top ten produces 291{,}987, 24.2 times the random-removal mean.  The
 systemic ranking also exceeds high-market-value, high-degree, and
 high-eigenvector removal baselines, indicating that the meta-network
@@ -604,28 +630,41 @@ systemic partners is far more damaging in predicted aggregate exposure
 than removing random partners or even simply large partners.
 
 % =====================================================================
-\section{Downstream Operational Integration}
+\section{Boundary Condition: From Dependency Map to Candidate Annotation}
 \label{sec:downstream}
 
-The systemic-criticality panel is consumed by an operational
-strategic-decision pipeline that runs per-firm reports for all 7,626
-Compustat-matched focal firms.  The alignment recommender (Strategic
-Question 1: ``which downstream partner should we form a
-commercialization alliance with?'') uses two artifacts from this
-paper as inputs.  First, the layer-specific exit weights of
-Section~\ref{sec:method} weight the value side of the score.  Second,
-the partner-level normalized in-degree from
-Section~\ref{sec:findings} enters as a dependency-risk multiplier on
-the candidate side: adding a partner that many other firms already
-list as critical is penalized.  This propagates the systemic-criticality
-view into individual firms' partner choices without re-deriving any of
-the upstream weights.
+The systemic-criticality panel is a population-level map of
+dependency hubs.  A natural downstream question is whether the same
+partner-level quantities can personalize alliance recommendations
+for individual focal firms.  We use the operational alignment
+pipeline as a stress test of that interpretation.  The answer is
+largely negative.  Candidate-side systemicity, tenure, and degree
+features are useful annotations on a brokerage frontier, but they
+do not produce a validated focal-specific ranking; in saturated
+brokerage frontiers some of them even point away from realized new
+$L_2$ partners.  This section therefore documents a boundary
+condition of the systemic panel: it is an exposure map, not a
+standalone recommender.
 
-\subsection{Persistence-aware durable-rent score}
+Operationally, two artifacts from this paper enter the alignment
+pipeline that runs per-firm reports for the 7{,}626 Compustat-matched
+focal firms.  The layer-specific exit weights of
+Section~\ref{sec:method} weight the value side of a candidate-value
+annotation, and the partner-level normalized in-degree from
+Section~\ref{sec:findings} enters as a dependency-risk discount on
+the candidate side.  We tested the multiplicative combination of
+these annotations as an operational ranker and found that it does
+not validate as one.  The retained object is a brokerage frontier
+with descriptive durability and dependency annotations; the
+systemic panel's role is annotation, not selection.
 
-The recommender's commercialization branch implements a
-durable-rent score that combines structural opportunity, relational
-capability, focal absorptive capacity, and dependency risk:
+\subsection{A persistence-aware durable-rent score, as a tested
+            operational hypothesis}
+
+We first tested a persistence-aware durable-rent score motivated by
+the companion DMD finding.  The score was designed to combine focal
+brokerage opportunity with candidate tie-maintenance and
+systemic-risk annotations:
 \begin{align}
 \text{durable\_value}(c)
    &= \text{brokerage}_{L_2}(f, c) \cdot w_{\text{tenure}}(c), \\
@@ -644,17 +683,36 @@ against its SIC--$L_2$ cohort baseline.  The shrinkage form is
 $w = 0.5 + n / (n+\kappa) \cdot (\sigma(z) - 0.5)$ with $\kappa = 5$;
 this prevents single-tie outliers from dominating via tiny SIC-cell
 variance.  $\text{DepRisk}(c)$ is the candidate's normalized in-degree
-in this paper's 2017 systemic-criticality cross-section, with a
-``not in panel'' flag distinguishing structurally-zero risk from
-unobserved risk.  $g(\text{R\&D}_f)$ is a per-focal absorptive-capacity
+in the 2017 systemic-criticality cross-section, with a ``not in
+panel'' flag distinguishing structurally-zero risk from unobserved
+risk.  $g(\text{R\&D}_f)$ is a per-focal absorptive-capacity
 multiplier motivated by the L$_2$ sales premium's R\&D
 stratification (companion paper, Section~4 / Figure~3B).
 
 The score operationalizes the companion Hankel-DMD analysis's
-persistence-vs-acquisition asymmetry: the L$_2$ sales premium accrues
-to sustained ties only, not to fresh acquisitions, so a candidate's
-demonstrated tie-maintenance behavior is treated as a screening
-device on top of the structural opportunity.
+persistence-vs-acquisition asymmetry: the L$_2$ sales premium is
+associated with sustained ties, not freshly acquired ones, so a
+candidate's demonstrated tie-maintenance behavior is treated as a
+screening device on top of the structural opportunity.  The
+diagnostic results below show that this multiplicative construction
+should not be used as a ranker.
+
+\paragraph{A note on the historical use of \texttt{DepRisk}.}
+For the cross-sectional 2017 reporting, $\text{DepRisk}(c)$ is the
+candidate's normalized in-degree in the 2017 systemic-criticality
+cross-section.  For the historical out-of-time backtests in
+Section~\ref{sec:phase9b-lite} (score years 2008--2013), the current
+recommender implementation reads from the same 2017 cross-section
+rather than from the year-specific annual systemic-criticality
+panel.  The historical $\text{DepRisk}$ used in the backtest is
+therefore a static 2017 overlay, not a temporally-aligned signal.
+This is acknowledged here rather than hidden; an annual re-keying of
+$\text{DepRisk}$ to the score-year row of \texttt{systemic\_criticality\_annual.csv}
+is a cheap follow-up that does not change the qualitative findings
+because $\text{DepRisk}$ enters only as an annotation and the
+within-block direction is already reported in
+Table~\ref{tab:within-block} as anti-correlated with realized choice
+either way.
 
 \subsection{Population-scale personalization diagnostic}
 
@@ -706,6 +764,18 @@ construction; it yields $N_{\mathrm{eff}} \approx 1{,}812$, with the
 most-frequent top-1 candidate appearing in only $\approx 10$ of the
 7{,}626 focal firms' lists.
 
+This should not be interpreted as proof of rank validity.  Because
+brokerage is often saturated at its maximum value, top-choice
+diversity can arise from deterministic ordering inside very large
+tie blocks rather than from any meaningful focal-specific score
+gradient.  Section~\ref{sec:phase9b-lite} therefore audits the
+saturated frontier directly: for every realized in-pool dyad we
+compute $r_{\min}$ and $r_{\max}$, the minimum and maximum
+within-pool brokerage rank of the realized partner, and report the
+expected hit rate under random tie-breaking.  The brokerage score
+is best understood as a focal-specific gating variable that
+defines the frontier, not as a fully-resolved ranker over it.
+
 \subsection{Methodological reading}
 
 The collapse has a specific and useful interpretation.  The systemic
@@ -721,14 +791,17 @@ about \emph{which firms are dependency hubs}; it is not, on its own,
 informative about \emph{which firm is the right partner for a
 specific focal}.
 
-The downstream pipeline therefore separates two questions:
-\emph{ranking} candidates uses $\text{brokerage}_{L_2}$ (the only
-focal-specific signal in the current feature set), while the
-\emph{value} attached to a chosen candidate uses the systemic panel
-and the relational-capability features as multiplicative scalars.
-The systemic-criticality panel from this paper retains its
-operational role --- as a dependency-exposure overlay on the
-brokerage-ranked top-$k$, not as the rank itself.
+The downstream pipeline therefore separates two questions.
+$\text{brokerage}_{L_2}$ defines a focal-specific brokerage frontier
+(the set of candidates with non-overlapping $L_2$ neighborhoods).
+Within the saturated frontier, the current in-data features do not
+provide a validated total ordering; ranking by brokerage alone is a
+frontier-membership statement, not a focal-specific selection score.
+The \emph{value} attached to a candidate, conditional on frontier
+membership, draws on the systemic panel and the relational-capability
+features as descriptive scalars.  The systemic-criticality panel from
+this paper retains its operational role --- as a dependency-exposure
+overlay on the brokerage frontier, not as the rank itself.
 
 \subsection{Cheap interaction features do not break the collapse}
 \label{sec:interaction-features}
@@ -828,13 +901,21 @@ Coverage class & N rows & \% of 1{,}638 \\
 \end{tabular}
 \end{table}
 
-The recommender as currently designed is a tool for choosing among
-already-established players; in a market where 72\% of realized new
-$L_2$ ties involve a non-Compustat focal and another 12.6\% involve a
-genuine new $L_2$ entrant, it cannot be a discovery engine.  The
-0.2\% cross-layer-conversion share kills the alternative
-``recommend conversions from prior non-$L_2$ ties'' hypothesis
-empirically.
+Two distinct limitations are visible in Table~\ref{tab:coverage}.
+The first is a \emph{focal-side scope boundary}: 72.2\% of directed
+realized rows fall outside the Compustat-focal evaluation universe,
+which is intentional --- market-value outcomes require Compustat
+coverage --- but caps the share of new $L_2$ activity any
+Compustat-focal recommender can ever address.  The second is a
+\emph{candidate-side reach bottleneck} conditional on focal
+eligibility: of the rows with Compustat focals, only 120 have a
+candidate in the prior-$L_2$ pool, while 206 are genuine new $L_2$
+entrants, 63 have prior SDC activity but no prior $L_2$, and 62 have
+prior $L_2$ but are excluded by the rolling-window pool rule.  Under
+this operational definition, prior non-$L_2$ same-focal conversion
+is not a major source of new $L_2$ formation (4 rows out of 1{,}638),
+which does not support a ``recommend cross-layer conversions''
+extension as a high-yield intervention here.
 
 For the 119 in-pool dyads, brokerage saturates as expected: 99\% of
 within-focal candidates have $\text{brokerage}_{L_2} = 1.0$, with
@@ -850,42 +931,64 @@ bootstrap (1{,}000 reps):
 \centering
 \footnotesize
 \caption{Within-saturated-block annotation percentiles for the
-realized partner ($N = 119$ in-pool dyads, focal-clustered bootstrap
-CI).  CIs in bold exclude the 0.5 random baseline.}
+realized partner ($N$ in-pool dyads, focal-clustered bootstrap CI).
+CIs in bold exclude the 0.5 random baseline.  Higher $P^a$ means
+the realized partner sits higher in the within-block distribution
+of the named annotation.}
 \label{tab:within-block}
-\begin{tabular}{lrcc}
+\begin{tabular}{lrrcc}
 \toprule
-Annotation & Mean $P^a$ & 95\% CI & Reading \\
+Annotation & $N$ & Mean $P^a$ & 95\% CI & Reading \\
 \midrule
-\texttt{n\_hist\_ties}                  & \textbf{0.820} & \textbf{[0.781, 0.857]} & realized partners are degree-heavy \\
-\texttt{n\_current\_ties}               & \textbf{0.820} & \textbf{[0.772, 0.861]} & same \\
-\texttt{candidate\_degree\_all}         & \textbf{0.819} & \textbf{[0.772, 0.861]} & same \\
-\texttt{candidate\_degree\_l2}          & \textbf{0.745} & \textbf{[0.693, 0.793]} & moderate \\
-\texttt{w\_tenure\_smooth}              & \textbf{0.221} & \textbf{[0.178, 0.274]} & realized partners are LESS tenured \\
-\texttt{w\_redundancy}                  & \textbf{0.216} & \textbf{[0.174, 0.257]} & realized partners are HIGHER risk \\
-\texttt{annotated\_value\_synthetic}    & \textbf{0.154} & \textbf{[0.119, 0.192]} & multiplicative durable-rent ANTI-correlates \\
-\texttt{dep\_risk}                      & \textbf{0.084} & \textbf{[0.072, 0.096]} & realized partners are LESS systemic \\
+\texttt{n\_hist\_ties}                  & 119 & \textbf{0.820} & \textbf{[0.781, 0.857]} & realized partners are degree-heavy \\
+\texttt{n\_current\_ties}               & 119 & \textbf{0.820} & \textbf{[0.772, 0.861]} & same \\
+\texttt{candidate\_degree\_all}         & 119 & \textbf{0.819} & \textbf{[0.772, 0.861]} & same \\
+\texttt{candidate\_degree\_l2}          & 119 & \textbf{0.745} & \textbf{[0.693, 0.793]} & moderate \\
+\texttt{w\_tenure\_smooth}              & 119 & \textbf{0.221} & \textbf{[0.178, 0.274]} & lower tenure than block median \\
+\texttt{w\_redundancy}                  & 119 & \textbf{0.216} & \textbf{[0.174, 0.257]} & lower redundancy than block median$^\dagger$ \\
+\texttt{annotated\_value\_synthetic}    & 119 & \textbf{0.154} & \textbf{[0.119, 0.192]} & multiplicative product compounds the two \\
+\texttt{dep\_risk}                      &  81 & \textbf{0.084} & \textbf{[0.072, 0.096]} & lower observed dependency risk$^\ddagger$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Three readings are forced by Table~\ref{tab:within-block}.  First,
-candidate degree (current, historical, and $L_2$-specific) does
-identify realized partners within the saturated brokerage frontier,
-with mean percentile $\approx 0.82$ and tight CIs that exclude the
-random baseline.  Second, the recommender's own durable-rent
-annotations point in the wrong direction: realized partners are in
-the bottom quintile of \texttt{w\_tenure\_smooth}, the bottom
-quintile of \texttt{w\_redundancy}, and the bottom decile of
-\texttt{dep\_risk}.  The multiplicative
-\texttt{annotated\_value\_synthetic} compounds the two
-anti-correlations to mean $P = 0.154$.  Third, while the Hankel-DMD
-analysis says \emph{sustained} $L_2$ brokerage carries the sales
-premium, this does not imply that already-tenured candidates should
-be the partners selected for new ties; the empirical pattern is the
-opposite.  Firms select fresh, low-history, non-systemic partners
-when they form new $L_2$ alliances.  The recommender's value/risk
-annotations should therefore be read as descriptive labels on the
+\vspace{-0.4em}
+\noindent\footnotesize $^\dagger$ \texttt{w\_redundancy} percentile
+includes all 119 dyads: candidates with unobserved $\text{DepRisk}$
+default to $w_{\text{redundancy}} = 1.0$ (the maximum), so the
+realized partner being in the bottom $\sim$22\% means it is more
+often in the small minority of candidates with observed positive
+$\text{DepRisk}$ (i.e., $w_{\text{redundancy}} < 1.0$).
+$^\ddagger$ \texttt{dep\_risk} percentile is computed over the
+$N=81$ subsample where the realized partner's $\text{DepRisk}$ is
+observed (i.e., the partner appears in the 2017
+systemic-criticality cross-section); among that subsample, the
+realized partner is at the low end of the observed-risk
+distribution.  The two readings are consistent: realized partners
+overlap meaningfully with the observed-$\text{DepRisk}$ subset, and
+within that subset they sit at the low-systemic end.\normalsize
+
+Three readings are supported by Table~\ref{tab:within-block}.  First,
+candidate degree (current, historical, and $L_2$-specific) is
+positively associated with the realized partner inside the saturated
+brokerage frontier, with mean percentile $\approx 0.82$ and tight
+CIs that exclude the random baseline.  Second, the recommender's
+durability annotations point in the opposite direction from the
+durable-rent hypothesis: the realized partner is more often in the
+bottom quintile of \texttt{w\_tenure\_smooth} and in the small
+minority with observed positive $\text{DepRisk}$ (so
+\texttt{w\_redundancy} below the block median); within the
+observed-$\text{DepRisk}$ subset itself the realized partner sits
+at the low-risk end.  The multiplicative
+\texttt{annotated\_value\_synthetic} compounds these patterns to
+mean $P = 0.154$.  Third, the Hankel-DMD analysis is consistent
+with this: it says \emph{sustained} $L_2$ brokerage is associated
+with later sales, especially for R\&D-intensive focals; it does
+not imply that already-tenured candidates should be selected for
+new $L_2$ ties, and our diagnostic suggests that, in this dataset,
+firms tend to select fresh, low-history, less-systemic partners
+when forming new $L_2$ alliances.  The recommender's value/risk
+annotations are therefore best read as descriptive labels on the
 brokerage frontier, not as priority signals for selection.
 
 We also estimate sales-association at the focal-year level
@@ -972,12 +1075,40 @@ countries.  The annual panel reported in
 Section~\ref{sec:annual} adds a temporal dimension to that question:
 the leaderboard is moderately stable (71\% year-over-year top-20
 retention) but not static, and concentration peaked during the
-dot-com era before relaxing.  The next empirical step is targeted
-validation on the top systemic partners using exact deletion
-recomputation and richer event-study designs around observed exits.
+dot-com era before relaxing.
+
+The downstream recommender audit (Section~\ref{sec:downstream})
+clarifies the level of analysis.  Systemic criticality is
+informative about common dependency hubs, but partner-level
+systemicity does not personalize focal-firm alliance choice.  In
+saturated brokerage frontiers, candidate-side annotations can even
+point away from realized new $L_2$ partners.  The appropriate use
+of the panel is therefore as a structural stress-test and
+dependency-annotation layer, not as a standalone alliance recommender.
+
+The next empirical step is targeted validation on the top systemic
+partners using exact deletion recomputation and richer event-study
+designs around observed exits, together with a follow-on pipeline
+that addresses entry --- not just choice among incumbents --- since
+roughly three quarters of realized new $L_2$ ties involve focals or
+candidates outside the current Compustat-and-prior-$L_2$ scope.
+
+We frame the contribution as three claims:
+\begin{enumerate}
+  \item \textbf{Measurement contribution.} An identity-clean annual
+  systemic-criticality meta-network for the multiplex alliance
+  economy, with partner-specific exposure scoring.
+  \item \textbf{Structural finding.} Systemic dependency is
+  concentrated in interpretable partners, industries, and time
+  periods, and is not reducible to firm size or standard centrality.
+  \item \textbf{Boundary condition.} The same systemic panel should
+  not be mistaken for a focal-firm recommender; downstream tests
+  show candidate-side systemicity and durability annotations do not
+  validate as selection ranks.
+\end{enumerate}
 
 \bibliographystyle{apalike}
-\begin{thebibliography}{9}
+\begin{thebibliography}{20}
 
 \bibitem[Ahuja(2000)]{ahuja2000}
 Ahuja, G. (2000).
@@ -985,16 +1116,79 @@ Ahuja, G. (2000).
 longitudinal study.
 \newblock \emph{Administrative Science Quarterly}, 45(3):425--455.
 
+\bibitem[Anand and Khanna(2000)]{anand2000}
+Anand, B.~N. and Khanna, T. (2000).
+\newblock Do firms learn to create value? The case of alliances.
+\newblock \emph{Strategic Management Journal}, 21(3):295--315.
+
 \bibitem[Burt(1992)]{burt1992}
 Burt, R.~S. (1992).
 \newblock \emph{Structural Holes: The Social Structure of Competition}.
 Harvard University Press.
+
+\bibitem[Callaway and Sant'Anna(2021)]{callawaysantanna2021}
+Callaway, B. and Sant'Anna, P.~H.~C. (2021).
+\newblock Difference-in-differences with multiple time periods.
+\newblock \emph{Journal of Econometrics}, 225(2):200--230.
+
+\bibitem[Coleman(1988)]{coleman1988}
+Coleman, J.~S. (1988).
+\newblock Social capital in the creation of human capital.
+\newblock \emph{American Journal of Sociology}, 94:S95--S120.
+
+\bibitem[de Chaisemartin and D'Haultf{\oe}uille(2020)]{dechaisemartin2020}
+de Chaisemartin, C. and D'Haultf{\oe}uille, X. (2020).
+\newblock Two-way fixed effects estimators with heterogeneous
+treatment effects.
+\newblock \emph{American Economic Review}, 110(9):2964--2996.
+
+\bibitem[Dyer and Singh(1998)]{dyersingh1998}
+Dyer, J.~H. and Singh, H. (1998).
+\newblock The relational view: Cooperative strategy and sources of
+interorganizational competitive advantage.
+\newblock \emph{Academy of Management Review}, 23(4):660--679.
+
+\bibitem[Goodman-Bacon(2021)]{goodmanbacon2021}
+Goodman-Bacon, A. (2021).
+\newblock Difference-in-differences with variation in treatment
+timing.
+\newblock \emph{Journal of Econometrics}, 225(2):254--277.
+
+\bibitem[Gulati(1995)]{gulati1995}
+Gulati, R. (1995).
+\newblock Social structure and alliance formation patterns: A
+longitudinal analysis.
+\newblock \emph{Administrative Science Quarterly}, 40(4):619--652.
+
+\bibitem[Kale et~al.(2002)]{kale2002}
+Kale, P., Dyer, J.~H., and Singh, H. (2002).
+\newblock Alliance capability, stock market response, and long-term
+alliance success: The role of the alliance function.
+\newblock \emph{Strategic Management Journal}, 23(8):747--767.
+
+\bibitem[Lavie(2007)]{lavie2007}
+Lavie, D. (2007).
+\newblock Alliance portfolios and firm performance: A study of value
+creation and appropriation in the U.S. software industry.
+\newblock \emph{Strategic Management Journal}, 28(12):1187--1212.
 
 \bibitem[Phelps(2010)]{phelps2010}
 Phelps, C.~C. (2010).
 \newblock A longitudinal study of the influence of alliance network
 structure and composition on firm exploratory innovation.
 \newblock \emph{Academy of Management Journal}, 53(4):890--913.
+
+\bibitem[Sun and Abraham(2021)]{sunabraham2021}
+Sun, L. and Abraham, S. (2021).
+\newblock Estimating dynamic treatment effects in event studies with
+heterogeneous treatment effects.
+\newblock \emph{Journal of Econometrics}, 225(2):175--199.
+
+\bibitem[Uzzi(1997)]{uzzi1997}
+Uzzi, B. (1997).
+\newblock Social structure and competition in interfirm networks: The
+paradox of embeddedness.
+\newblock \emph{Administrative Science Quarterly}, 42(1):35--67.
 
 \end{thebibliography}
 
