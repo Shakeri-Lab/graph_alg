@@ -795,6 +795,110 @@ or supply-chain proximity beyond nation, or board-interlock and M\&A
 history.  These are real options for a follow-on phase but each
 requires either external data or substantial modeling work.
 
+\subsection{Out-of-time validation: the saturated frontier and
+            anti-correlated annotations}
+\label{sec:phase9b-lite}
+
+We backtest the brokerage-frontier recommender on six years of
+realized new $L_2$ ties ($T \in \{2009, \ldots, 2014\}$).  For each
+year $T$, the recommender is run at score year $T-1$ (no $T$-year
+data leakage).  Realized new $L_2$ dyads are partitioned into a
+seven-class coverage taxonomy.  Pooled across the six backtest
+years (1{,}638 directed realized rows = 819 unique dyads):
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption{Coverage breakdown for realized new $L_2$ dyads,
+2009--2014. Only candidates with prior $L_2$ activity are reachable
+by the brokerage-frontier recommender.}
+\label{tab:coverage}
+\begin{tabular}{lrr}
+\toprule
+Coverage class & N rows & \% of 1{,}638 \\
+\midrule
+\texttt{focal\_not\_compustat}                & 1{,}183 & 72.2\% \\
+\texttt{candidate\_genuine\_new\_L2\_entrant} &   206 & 12.6\% \\
+\textbf{\texttt{candidate\_in\_pool}} (reachable) &  120 &  \textbf{7.3\%} \\
+\texttt{candidate\_prior\_L2\_excluded\_by\_pool} &  62 &  3.8\% \\
+\texttt{candidate\_prior\_SDC\_no\_L2}        &    63 &  3.8\% \\
+\texttt{candidate\_prior\_nonL2\_same\_focal} &     4 &  0.2\% \\
+\texttt{candidate\_unmatched}                 &     0 &  0.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The recommender as currently designed is a tool for choosing among
+already-established players; in a market where 72\% of realized new
+$L_2$ ties involve a non-Compustat focal and another 12.6\% involve a
+genuine new $L_2$ entrant, it cannot be a discovery engine.  The
+0.2\% cross-layer-conversion share kills the alternative
+``recommend conversions from prior non-$L_2$ ties'' hypothesis
+empirically.
+
+For the 119 in-pool dyads, brokerage saturates as expected: 99\% of
+within-focal candidates have $\text{brokerage}_{L_2} = 1.0$, with
+median tie-block size 2{,}896.  We compute the realized partner's
+within-tie-block percentile under each annotation,
+$P^a_{fc^\star t} = \bigl[\#\{c \in \mathcal B : a < a^\star\}
++ 0.5 \cdot \#\{c \in \mathcal B : a = a^\star\}\bigr] / |\mathcal B|$.
+Random ordering inside the block implies $\mathbb E[P^a] = 0.5$.
+Mean percentile per annotation, with 95\% CI from a focal-clustered
+bootstrap (1{,}000 reps):
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption{Within-saturated-block annotation percentiles for the
+realized partner ($N = 119$ in-pool dyads, focal-clustered bootstrap
+CI).  CIs in bold exclude the 0.5 random baseline.}
+\label{tab:within-block}
+\begin{tabular}{lrcc}
+\toprule
+Annotation & Mean $P^a$ & 95\% CI & Reading \\
+\midrule
+\texttt{n\_hist\_ties}                  & \textbf{0.820} & \textbf{[0.781, 0.857]} & realized partners are degree-heavy \\
+\texttt{n\_current\_ties}               & \textbf{0.820} & \textbf{[0.772, 0.861]} & same \\
+\texttt{candidate\_degree\_all}         & \textbf{0.819} & \textbf{[0.772, 0.861]} & same \\
+\texttt{candidate\_degree\_l2}          & \textbf{0.745} & \textbf{[0.693, 0.793]} & moderate \\
+\texttt{w\_tenure\_smooth}              & \textbf{0.221} & \textbf{[0.178, 0.274]} & realized partners are LESS tenured \\
+\texttt{w\_redundancy}                  & \textbf{0.216} & \textbf{[0.174, 0.257]} & realized partners are HIGHER risk \\
+\texttt{annotated\_value\_synthetic}    & \textbf{0.154} & \textbf{[0.119, 0.192]} & multiplicative durable-rent ANTI-correlates \\
+\texttt{dep\_risk}                      & \textbf{0.084} & \textbf{[0.072, 0.096]} & realized partners are LESS systemic \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three readings are forced by Table~\ref{tab:within-block}.  First,
+candidate degree (current, historical, and $L_2$-specific) does
+identify realized partners within the saturated brokerage frontier,
+with mean percentile $\approx 0.82$ and tight CIs that exclude the
+random baseline.  Second, the recommender's own durable-rent
+annotations point in the wrong direction: realized partners are in
+the bottom quintile of \texttt{w\_tenure\_smooth}, the bottom
+quintile of \texttt{w\_redundancy}, and the bottom decile of
+\texttt{dep\_risk}.  The multiplicative
+\texttt{annotated\_value\_synthetic} compounds the two
+anti-correlations to mean $P = 0.154$.  Third, while the Hankel-DMD
+analysis says \emph{sustained} $L_2$ brokerage carries the sales
+premium, this does not imply that already-tenured candidates should
+be the partners selected for new ties; the empirical pattern is the
+opposite.  Firms select fresh, low-history, non-systemic partners
+when they form new $L_2$ alliances.  The recommender's value/risk
+annotations should therefore be read as descriptive labels on the
+brokerage frontier, not as priority signals for selection.
+
+We also estimate sales-association at the focal-year level
+(maximum within-block percentile per focal, OLS with year fixed
+effects + Compustat controls $\log\text{sales}_t$,
+$\log\text{assets}_t$, R\&D intensity, and the count of in-pool
+realized partners).  All annotations have $\beta_h$ confidence
+intervals that overlap zero at $h \in \{2, 4\}$ ($N$ = 35--43
+focal-years per cell), so this small-$N$ test is uninformative for
+sales association.  We report the betas in
+\texttt{week2b\_sales\_regression.csv} but make no claim of sales
+lift from any annotation.
+
 % =====================================================================
 \section{Limitations}
 \label{sec:limitations}
